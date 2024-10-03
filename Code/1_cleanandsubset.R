@@ -56,7 +56,7 @@ me <- read_rds("Data/TrawlSurvey_data/me_both_weight_at_length.rds") %>%
 pred_df <- rbind(ma, dfo, nefsc, me) %>%
   mutate(season = str_to_sentence(season))
 
-write_rds(pred_df, "Data/Derived/combined_and_filtered_predators.rds")
+write_rds(pred_df, "Data/Derived/combined_and_filtered_predators.rds", compress = "gz")
 
 #----------------------------------
 ## Load & filter lobster
@@ -87,12 +87,29 @@ lob_df <- rbind(ma_lob, dfo_lob, nefsc_lob, me_lob) %>%
   mutate(season = str_to_sentence(season))
 
 lob_df %>% 
-  mutate(trawl_id = as.factor(trawl_id), 
-         survey = as.factor(survey)) %>%
-  summarize(n_tows = dplyr::count(trawl_id))
-  summarize(total_observed = sum(number_at_length), 
-            n_tows = dplyr::count(trawl_id), 
-            catch_rate = total_observed/n_tows)
+  ungroup() %>%
+  distinct(trawl_id, survey) %>%
+  group_by(survey) %>%
+  summarize(n = n())
+
+lob_df %>% 
+  group_by(survey) %>%
+  summarize(total_observed = sum(number_at_length))
+
+lob_df %>% 
+  group_by(survey, year) %>% 
+  summarize(total_observed = sum(number_at_length)) %>% 
+  ggplot(aes(x = year, y = total_observed))+
+  geom_line(aes(color = survey))+
+  theme_classic()
+
+lob_df %>% 
+  group_by(survey, year) %>% 
+  summarize(total_observed = sum(number_at_length)) %>% 
+  ggplot(aes(x = year, y = total_observed))+
+  geom_line(aes(color = survey))+
+  facet_wrap(~survey, scales = "free")+
+  theme_classic()
 
 
 ggplot(lob_df, aes(x = weight_at_length))+
@@ -100,25 +117,51 @@ ggplot(lob_df, aes(x = weight_at_length))+
   facet_wrap(~survey, scales = "free")
 
 
-write_rds(lob_df, "Data/Derived/combined_and_filtered_lobsters.rds")
+write_rds(lob_df, "Data/Derived/combined_and_filtered_lobsters.rds", compress = "gz")
 
 #---------------------------------------------
 ## Build helper file for covariate extraction
 #---------------------------------------------
 
-trawl_meta <- pred_df %>% 
+
+ma_meta <- read_rds("Data/TrawlSurvey_data/mass_weight_at_length.rds") %>%
+  mutate(date = lubridate::date(date))
+
+dfo_meta <- read_rds("Data/TrawlSurvey_data/dfo_weight_at_length.rds")
+
+nefsc_meta <- read_rds("Data/TrawlSurvey_data/nefsc_both_weight_at_length.rds") %>% 
+  mutate(scientific_name = str_to_sentence(scientific_name))
+
+me_meta <- read_rds("Data/TrawlSurvey_data/me_both_weight_at_length.rds") %>%
+  mutate(date = lubridate::date(date))
+
+df_meta <- rbind(ma_meta, dfo_meta, nefsc_meta, me_meta) %>%
+  mutate(season = str_to_sentence(season)) %>%
   ungroup() %>% 
   distinct(longitude, latitude, trawl_id, survey, season, year, date) %>%
   rename(ID = trawl_id, DATE = date, EST_YEAR = year, DECDEG_BEGLAT = latitude, DECDEG_BEGLON = longitude)
 
+write_rds(df_meta, "Data/Derived/for_covariate_extraction.rds", compress = "gz")
 
-tow_name_check<- c("ID", "DATE", "EST_YEAR", "DECDEG_BEGLAT", "DECDEG_BEGLON")
-all(tow_name_check %in% names(trawl_meta))
 
-trawl_meta <- trawl_meta %>%
-  drop_na(DECDEG_BEGLAT)
 
-write_rds(trawl_meta, "Data/Derived/for_covariate_extraction.rds")
+
+
+
+
+# trawl_meta <- pred_df %>% 
+#   ungroup() %>% 
+#   distinct(longitude, latitude, trawl_id, survey, season, year, date) %>%
+#   rename(ID = trawl_id, DATE = date, EST_YEAR = year, DECDEG_BEGLAT = latitude, DECDEG_BEGLON = longitude)
+# 
+# 
+# tow_name_check<- c("ID", "DATE", "EST_YEAR", "DECDEG_BEGLAT", "DECDEG_BEGLON")
+# all(tow_name_check %in% names(trawl_meta))
+# 
+# trawl_meta <- trawl_meta %>%
+#   drop_na(DECDEG_BEGLAT)
+# 
+# write_rds(trawl_meta, "Data/Derived/for_covariate_extraction.rds")
 
 
 
