@@ -24,7 +24,8 @@ tow_name_check<- c("ID", "DATE", "EST_YEAR", "DECDEG_BEGLAT", "DECDEG_BEGLON")
 all(tow_name_check %in% names(all_tows))
 
 # Paths to Box folder
-proj_box_path<- cs_path(box_group = "Mills Lab", subfolder = "Projects/sdm_workflow/data 2")
+proj_box_path <- cs_path(box_group = "Mills Lab", subfolder = "Projects/sdm_workflow/data 2")
+glorys_dir_path<- cs_path(box_group = "RES_Data", subfolder = "GLORYs/NE_Shelf_MonthlyTemps")
 
 #####
 ## Static covariates
@@ -54,8 +55,7 @@ summary(all_tows_with_static_covs)
 ## Dynamic covariates
 #####
 # Read in dynamic raster stack files from a directory and store them in a list. 
-dynamic_dir<- paste0(proj_box_path, "covariates/dynamic")
-dynamic_files<- list.files(dynamic_dir, pattern = "BT.grd$", full.names = TRUE)
+dynamic_files<- list.files(glorys_dir_path, pattern = ".nc$", full.names = TRUE)
 dynamic_stacks<- vector("list", length(dynamic_files))
 
 for(i in seq_along(dynamic_files)){
@@ -63,7 +63,7 @@ for(i in seq_along(dynamic_files)){
 }
 
 # Names?
-names(dynamic_stacks)<- c("BT")
+names(dynamic_stacks)<- c("BT", "SST")
 
 # Run dynamic_2d_extract_wrapper function
 all_tows_with_all_covs<- dynamic_2d_extract_wrapper(dynamic_covariates_list = dynamic_stacks, t_summ = "seasonal", t_position = NULL, sf_points = all_tows_with_static_covs, date_col_name = "DATE", df_sf = "df", out_dir = "Data/Derived/")
@@ -71,37 +71,14 @@ all_tows_with_all_covs<- dynamic_2d_extract_wrapper(dynamic_covariates_list = dy
 # Check it out
 summary(all_tows_with_all_covs)
 
-all_tows_with_all_covs %>% 
-  filter(is.na(BT_seasonal)) %>% 
-  group_by(EST_YEAR) %>%
-  summarize(n = n()) %>% View() # Going to need to update the BT product. 
-  
-
-unique(all_tows_with_all_covs$EST_YEAR[is.na(all_tows_with_all_covs$BT_seasonal) == T])
-
-#####
-## Dynamic covariates -- AA
-#####
-# It looks like the above is working, we just need to figure out what we want to do with the updated dataset bits. For now and to get things rolling, maybe we just chop to 1985-2020?
-
-# For what it is worth, here's if you wanted to do more than just BT...I hope? I really need to update the documentation on this stuff!
-
-# After making sure all of the raster stacks are in the "dynamic" folder and deleting the defunct ".dvc" nonsense. Also seeing the SST.gri file never uploaded to Box...of course!
-dynamic_dir<- paste0(proj_box_path, "covariates/dynamic")
-dynamic_stacks <- dynamic_covariates_read(dynamic_dir)
-
-# Run dynamic_2d_extract_wrapper function
-all_tows_with_all_covs <- dynamic_2d_extract_wrapper(dynamic_covariates_list = dynamic_stacks, t_summ = "seasonal", t_position = NULL, sf_points = all_tows_with_static_covs, date_col_name = "DATE", df_sf = "df", out_dir = "Data/Derived/")
-
-# Check it out
-summary(all_tows_with_all_covs)
-
-unique(all_tows_with_all_covs$EST_YEAR[is.na(all_tows_with_all_covs$SST_seasonal) == T])
+# Filter to GLORYs years (1993-2024)
+tow_data_out <- all_tows_with_all_covs |>
+  filter(EST_YEAR >= 1993 & EST_YEAR < 2024)
+summary(tow_data_out)
 
 # Not entirely clear to me why we are missing some during the "good" years...potentially insure points?
-t <- all_tows_with_all_covs[which(is.na(all_tows_with_all_covs$SST_seasonal) == T), ] |>
-  filter(EST_YEAR >= 1985 & EST_YEAR <= 2019) |>
+t <- tow_data_out[which(is.na(tow_data_out$SST_seasonal) == T), ] |>
   distinct()
 
-plot(t$DECDEG_BEGLON, t$DECDEG_BEGLAT) # Ahhhh fun :)
+plot(t$DECDEG_BEGLON, t$DECDEG_BEGLAT) # Ehhh...
 
