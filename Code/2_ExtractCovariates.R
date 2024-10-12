@@ -25,7 +25,7 @@ all(tow_name_check %in% names(all_tows))
 
 # Paths to Box folder
 proj_box_path <- cs_path(box_group = "Mills Lab", subfolder = "Projects/sdm_workflow/data 2")
-glorys_dir_path<- cs_path(box_group = "RES_Data", subfolder = "GLORYs/NE_Shelf_MonthlyTemps")
+glorys_dir_path<- cs_path(box_group = "RES_Data", subfolder = "GLORYs/NW_Atl_MonthlyTemps")
 
 #####
 ## Static covariates
@@ -54,8 +54,8 @@ summary(all_tows_with_static_covs)
 #####
 ## Dynamic covariates
 #####
-# Read in dynamic raster stack files from a directory and store them in a list. 
-dynamic_files<- list.files(glorys_dir_path, pattern = ".nc$", full.names = TRUE)
+# Read in dynamic raster stack files from a directory and store them in a list.
+dynamic_files <- list.files(glorys_dir_path, pattern = ".nc$", full.names = TRUE)[c(1, 5)]
 dynamic_stacks<- vector("list", length(dynamic_files))
 
 for(i in seq_along(dynamic_files)){
@@ -73,12 +73,13 @@ summary(all_tows_with_all_covs)
 
 # Filter to GLORYs years (1993-2024)
 tow_data_out <- all_tows_with_all_covs |>
-  filter(EST_YEAR >= 1993 & EST_YEAR < 2024)
+  filter(EST_YEAR > 1993 & EST_YEAR < 2024)
 summary(tow_data_out)
 
 # Not entirely clear to me why we are missing some during the "good" years...potentially insure points?
 t <- tow_data_out[which(is.na(tow_data_out$SST_seasonal) == T), ] |>
   distinct()
 
-plot(t$DECDEG_BEGLON, t$DECDEG_BEGLAT) # Ehhh...
+plot(t$DECDEG_BEGLON, t$DECDEG_BEGLAT) #
 
+saveRDS(t, here::here("Data/Derived/all_tows_all_covs.rds"))
