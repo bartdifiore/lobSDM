@@ -11,12 +11,13 @@ source("Code/enhance_r_funcs.R")
 #------------------------------------
 ## Comparison of potential predators
 #------------------------------------
+potentials_df <- ecodata::species_groupings %>%
+  filter(SOE.20 %in% c("Piscivore", "Benthivore", "Apex Predator"))
 
-potentials <- ecodata::species_groupings %>%
-  filter(SOE.20 %in% c("Piscivore", "Benthivore", "Apex Predator")) %>% 
+potentials <- potentials_df %>% 
   distinct(COMNAME) # this is the list of fish predators, benthic predators, and apex predators. Qualitatively, it is similar (albeit more comprehensive) than the list from the food habits database
 
-potentials <- as.vector(potentials$COMNAME)
+potentials <- as.vector(potentials_df$COMNAME)
 
 preds <- read.csv("Data/FoodHabits_lobsterpredators.csv")
 preds_upper <- str_trim(str_to_upper(preds$com_name))
@@ -28,7 +29,6 @@ comparison <- setdiff(potentials, preds_upper) # There are few species on this l
 # Finally, I think its worth considering that ~75% of the predators that have been observed with lobster in their stomachs, evidence of lobster has only been observed in <10 individual stomachs. For instance, NOAA has sampled 62K whiting stomachs and only found lobster in 3 individuals!!!
 
 # For now I will proceed with the food habits database characterization of lobster predators and use a size threshold of 20 cm (~8"). 
-
 pred_subset <- preds$scientific_name
 
 #----------------------------------
@@ -58,110 +58,97 @@ pred_df <- rbind(ma, dfo, nefsc, me) %>%
 
 write_rds(pred_df, "Data/Derived/combined_and_filtered_predators.rds", compress = "gz")
 
-#----------------------------------
-## Load & filter lobster
-#----------------------------------
+# Quick plot?
+potentials_df <- potentials_df |>
+  mutate_if(is.character, to_sentence_case) |>
+  mutate_if(is.factor, ~ to_sentence_case(as.character(.))) |>
+  select(COMNAME, SCINAME)
 
+pred_df <- pred_df |>
+  left_join(potentials_df, by = c("scientific_name" = "SCINAME"))
+head(pred_df)
+
+# Species, survey, year, season, total biomass?
+pred_summ_plot <- pred_df |>
+  mutate(total_weight_at_length = number_at_length*weight_at_length) |>
+  group_by(COMNAME, survey, year, season) |>
+  summarize("total_biomass" = sum(total_weight_at_length))
+
+ggplot(pred_summ_plot, aes(x = year, y = total_biomass, fill = COMNAME)) +
+  geom_area() +
+  facet_wrap(~season)
+
+#----------------------------------
+## Load, classify and explore lobster data
+#----------------------------------
 ma_lob <- read_rds("Data/TrawlSurvey_data/mass_weight_at_length.rds") %>%
-  filter(scientific_name == "Homarus americanus",
-         length_cm < 8.2) %>%
-  mutate(date = lubridate::date(date))
+  filter(scientific_name == "Homarus americanus") |>
+  mutate(
+    life_class = ifelse(length_cm < 8.2, "juvenile", "adult"),
+    date = lubridate::date(date)
+  )
 
-dfo_lob <- read_rds("Data/TrawlSurvey_data/dfo_weight_at_length.rds")  %>%
+dfo_lob <- read_rds("Data/TrawlSurvey_data/dfo_weight_at_length.rds") %>%
   filter(scientific_name == "Homarus americanus") %>%
-  # mutate(length_cm = length_cm*10,
-  #        weight_at_length = weight_at_length*1000) %>% # This is temporary fix!!!!
-  filter(length_cm < 8.2)
+  mutate(
+    life_class = ifelse(length_cm < 8.2, "juvenile", "adult"),
+    date = lubridate::date(date)
+  )
 
-nefsc_lob <- read_rds("Data/TrawlSurvey_data/nefsc_both_weight_at_length.rds") %>% 
+nefsc_lob <- read_rds("Data/TrawlSurvey_data/nefsc_both_weight_at_length.rds") %>%
   mutate(scientific_name = str_to_sentence(scientific_name)) %>%
-  filter(scientific_name == "Homarus americanus",
-         length_cm < 8.2)
+  filter(scientific_name == "Homarus americanus") |>
+  mutate(
+    life_class = ifelse(length_cm < 8.2, "juvenile", "adult"),
+    date = lubridate::date(date)
+  )
 
 me_lob <- read_rds("Data/TrawlSurvey_data/me_both_weight_at_length.rds") %>%
-  filter(scientific_name == "Homarus americanus",
-         length_cm < 8.2) %>%
-  mutate(date = lubridate::date(date))
+  filter(scientific_name == "Homarus americanus") |>
+   mutate(
+    life_class = ifelse(length_cm < 8.2, "juvenile", "adult"),
+    date = lubridate::date(date)
+  )
 
 lob_df <- rbind(ma_lob, dfo_lob, nefsc_lob, me_lob) %>%
   mutate(season = str_to_sentence(season))
 
+# Some quick exploration
+# Tows
 lob_df %>% 
   ungroup() %>%
   distinct(trawl_id, survey) %>%
   group_by(survey) %>%
   summarize(n = n())
 
+# Total observed
 lob_df %>% 
-  group_by(survey) %>%
+  group_by(survey, life_class) %>%
   summarize(total_observed = sum(number_at_length))
 
 lob_df %>% 
-  group_by(survey, year) %>% 
+  group_by(survey, year, life_class) %>% 
   summarize(total_observed = sum(number_at_length)) %>% 
   ggplot(aes(x = year, y = total_observed))+
   geom_line(aes(color = survey))+
-  theme_classic()
+  theme_classic() +
+  facet_wrap(~life_class)
 
 lob_df %>% 
-  group_by(survey, year) %>% 
+  group_by(survey, year, life_class) %>% 
   summarize(total_observed = sum(number_at_length)) %>% 
   ggplot(aes(x = year, y = total_observed))+
   geom_line(aes(color = survey))+
-  facet_wrap(~survey, scales = "free")+
+  facet_wrap(~survey + life_class, scales = "free", ncol = 2)+
   theme_classic()
 
 
 ggplot(lob_df, aes(x = weight_at_length))+
   geom_histogram()+
-  facet_wrap(~survey, scales = "free")
+  facet_wrap(~survey + life_class, scales = "free", ncol = 2) 
 
 
-write_rds(lob_df, "Data/Derived/combined_and_filtered_lobsters.rds", compress = "gz")
-
-#---------------------------------------------
-## Build helper file for covariate extraction
-#---------------------------------------------
-
-
-ma_meta <- read_rds("Data/TrawlSurvey_data/mass_weight_at_length.rds") %>%
-  mutate(date = lubridate::date(date))
-
-dfo_meta <- read_rds("Data/TrawlSurvey_data/dfo_weight_at_length.rds")
-
-nefsc_meta <- read_rds("Data/TrawlSurvey_data/nefsc_both_weight_at_length.rds") %>% 
-  mutate(scientific_name = str_to_sentence(scientific_name))
-
-me_meta <- read_rds("Data/TrawlSurvey_data/me_both_weight_at_length.rds") %>%
-  mutate(date = lubridate::date(date))
-
-df_meta <- rbind(ma_meta, dfo_meta, nefsc_meta, me_meta) %>%
-  mutate(season = str_to_sentence(season)) %>%
-  ungroup() %>% 
-  distinct(longitude, latitude, trawl_id, survey, season, year, date) %>%
-  rename(ID = trawl_id, DATE = date, EST_YEAR = year, DECDEG_BEGLAT = latitude, DECDEG_BEGLON = longitude)
-
-write_rds(df_meta, "Data/Derived/for_covariate_extraction.rds", compress = "gz")
-
-
-
-
-
-
-
-# trawl_meta <- pred_df %>% 
-#   ungroup() %>% 
-#   distinct(longitude, latitude, trawl_id, survey, season, year, date) %>%
-#   rename(ID = trawl_id, DATE = date, EST_YEAR = year, DECDEG_BEGLAT = latitude, DECDEG_BEGLON = longitude)
-# 
-# 
-# tow_name_check<- c("ID", "DATE", "EST_YEAR", "DECDEG_BEGLAT", "DECDEG_BEGLON")
-# all(tow_name_check %in% names(trawl_meta))
-# 
-# trawl_meta <- trawl_meta %>%
-#   drop_na(DECDEG_BEGLAT)
-# 
-# write_rds(trawl_meta, "Data/Derived/for_covariate_extraction.rds")
+write_rds(lob_df, "Data/Derived/combined_lobsters_by_life_class.rds", compress = "gz")
 
 
 
