@@ -69,7 +69,7 @@ names(static_layers)[i]<- "Depth"
 all_tows_sf<- points_to_sf(all_tows)
 
 # Run static_extract_wrapper
-all_tows_with_static_covs<- static_extract_wrapper(static_covariates_list = static_layers, sf_points = all_tows_sf, date_col_name = "DATE", df_sf = "sf", out_dir = "Data/Derived/")
+all_tows_with_static_covs<- static_extract_wrapper(static_covariates_list = static_layers, sf_points = all_tows_sf, interp_nas = TRUE, date_col_name = "DATE", df_sf = "sf", out_dir = "Data/Derived/")
 
 # Check it out
 summary(all_tows_with_static_covs)
@@ -90,7 +90,15 @@ for(i in seq_along(dynamic_files)){
 names(dynamic_stacks)<- c("BT", "SST")
 
 # Run dynamic_2d_extract_wrapper function
-all_tows_with_all_covs<- dynamic_2d_extract_wrapper(dynamic_covariates_list = dynamic_stacks, t_summ = "seasonal", t_position = NULL, sf_points = all_tows_with_static_covs, date_col_name = "DATE", df_sf = "df", out_dir = "Data/Derived/")
+all_tows_with_all_covs<- dynamic_2d_extract_wrapper(dynamic_covariates_list = dynamic_stacks, t_summ = "seasonal", t_position = NULL, interp_nas = TRUE, sf_points = all_tows_with_static_covs, date_col_name = "DATE", df_sf = "df", out_dir = "Data/Derived/")
 
 # Check it out
 summary(all_tows_with_all_covs)
+
+#---------------------------------------------
+## Get a GLORYs grid for later use
+#---------------------------------------------
+glorys1 <- raster::stack(dynamic_files[[1]])[[1]] |>
+  as.data.frame(xy = TRUE)
+colnames(glorys1)[3] <- "value"
+write_rds(glorys1, here::here("Data/Derived/glorys_grid.rds"), compress = "gz")

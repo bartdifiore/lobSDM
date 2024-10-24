@@ -1,5 +1,74 @@
 ####  Common Resources  ####
+# Calculating average distance among raster layer centroids, used to interpolate NA values for points just outside covariate layer grid
 
+# Function to calculate nearest distance, in space and time, between a point that has NA covariate value and one that doesn't
+get_raster_centroid_dist<- function(r) {
+  
+  distance <- sqrt(res(terra::rast(r))[1]^2 + res(terra::rast(r))[2]^2)
+  
+  return(distance)
+}
+
+# Helper function to find and fill NA values
+fill_na_spatiotemporal <- function(na_pts, non_na_pts, dist_mat, value_col, date_col) {
+  # Ensure both datasets have the same CRS
+  if (st_crs(na_pts) != st_crs(non_na_pts)) {
+    na_pts <- st_transform(non_na_pts, st_crs(na_pts))
+  }
+
+  if(is.null(date_col)) {
+    for (i in 1:nrow(na_pts)) {
+      # Get the point and date for current NA value
+      current_point <- na_pts[i,]
+    
+      # Calculate distance to all points in source dataset
+      distances <- dist_mat[i,]
+    
+      # Find nearest non-NA neighbor
+      valid_indices <- which(!is.na(non_na_pts[[value_col]]))
+      nearest_idx <- valid_indices[which.min(distances[valid_indices])]
+    
+      # Fill NA with nearest neighbor value
+      na_pts[[value_col]][i] <- non_na_pts[[value_col]][nearest_idx]
+    }
+  }
+  
+  if(!is.null(date_col)){
+     for (i in 1:nrow(na_pts)) {
+      # Get the point and date for current NA value
+      current_point <- na_pts[i,]
+      current_date <- na_pts[[date_col]][i]
+    
+      # Calculate distances to all points in source dataset
+      distances <- dist_mat[i,]
+    
+      # Calculate time differences (in days)
+      time_diffs <- abs(as.numeric(difftime(current_date, 
+                                        non_na_pts[[date_col]], 
+                                        units = "days")))
+    
+      # Combine spatial and temporal distances (normalized)
+      space_weight <- 0.5
+      time_weight <- 0.5
+    
+      norm_distances <- as.numeric(distances) / max(as.numeric(distances))
+      norm_time_diffs <- time_diffs / max(time_diffs)
+    
+      combined_distance <- space_weight * norm_distances + 
+                        time_weight * norm_time_diffs
+    
+      # Find nearest non-NA neighbor
+      valid_indices <- which(!is.na(non_na_pts[[value_col]]))
+      nearest_idx <- valid_indices[which.min(combined_distance[valid_indices])]
+    
+      # Fill NA with nearest neighbor value
+      na_pts[[value_col]][i] <- non_na_pts[[value_col]][nearest_idx]
+    } 
+  }
+
+  
+  return(na_pts)
+}
 
 ####  Functions  ####
 ####
@@ -65,7 +134,7 @@ covariate_rescale_func<- function(x, type, center = NULL, scale = NULL){
 #' @return Either an SF object or dataframe, with the covariate value appended as a new column to the point locations file. This file is also saved in out_dir. 
 #' 
 #' @export
-static_extract<- function(rast, cov_name, sf_points, date_col_name, df_sf){
+static_extract<- function(rast, cov_name, sf_points, interp_nas, date_col_name, df_sf){
   # For debugging
   if(FALSE){
     rast = rast_use
@@ -92,8 +161,26 @@ static_extract<- function(rast, cov_name, sf_points, date_col_name, df_sf){
   sf_extract<- data.frame(raster::extract(rast, sf_points))
   names(sf_extract)<- cov_name
   
-  # Bind to sf_unique 
-  sf_points<- cbind(sf_points, sf_extract)
+  # Bind to sf_unique
+  sf_points <- cbind(sf_points, sf_extract)
+  
+   # Deal with NAs
+  if(interp_nas){
+    print("WARNING! You have elected to fill in NA covariate values based on their nearest, non-NA match in space and time. We recommend first running this with `interp_na = FALSE` to make sure you know what you are doing.")
+    na_row_ids <- which(is.na(sf_points[cov_name]))
+    na_points <- st_transform(sf_points[na_row_ids, ], 32619)
+    non_na_points <- st_transform(sf_points[-na_row_ids, ], 32619)
+    
+    # Get distance matrix, just do this once
+    # Calculate distances to all points in source dataset
+    # distances <- st_distance(na_points, non_na_points) # This takes a longg time
+    distances <- as.matrix(dist(st_coordinates(na_points), st_coordinates(non_na_points), method = "euclidean"))
+    
+    filled_points <- fill_na_spatiotemporal(na_pts = na_points, non_na_pts = non_na_points, dist_mat = distances, value_col = cov_name, date_col = NULL)
+
+    # Put back in
+    sf_points[na_row_ids, cov_name] <- st_drop_geometry(filled_points[, cov_name])
+  }
   
   # Return processed file -----------------------------------------------------------
   if(df_sf == "sf"){
@@ -119,7 +206,7 @@ static_extract<- function(rast, cov_name, sf_points, date_col_name, df_sf){
 #' @return A datafame with information of all unique tows and appended columns for each of the static habitat covariates. This file is also saved in out_dir. 
 #' 
 #' @export
-static_extract_wrapper<- function(static_covariates_list, sf_points, date_col_name, df_sf, out_dir){
+static_extract_wrapper<- function(static_covariates_list, sf_points, interp_nas, date_col_name, df_sf, out_dir){
   # For debugging
   if(FALSE){
     tar_load(static_covariates_stack)
@@ -135,7 +222,7 @@ static_extract_wrapper<- function(static_covariates_list, sf_points, date_col_na
   sf_points_run<- sf_points
   for(i in seq_along(static_covariates_list)){
     rast_use<- static_covariates_list[[i]]
-    temp_tows_with_covs<- static_extract(rast = rast_use, cov_name = names(static_covariates_list)[[i]], sf_points = sf_points_run, date_col_name = date_col_name, df_sf = "sf")
+    temp_tows_with_covs<- static_extract(rast = rast_use, cov_name = names(static_covariates_list)[[i]], sf_points = sf_points_run, interp_nas = interp_nas, date_col_name = date_col_name, df_sf = "sf")
     
     # If there are more files to go, update sf_points_run
     if(i < length(static_covariates_list)){
@@ -173,6 +260,7 @@ static_extract_wrapper<- function(static_covariates_list, sf_points, date_col_na
 #' @param stack_name = The column name to use for the extracted value for the dynamic covariate 
 #' @param t_summ = A numeric value or character string that indicates what temporal resolution should be used in summarizing the covariate values. If numeric, the function will simply summarize the values in the raster stack from the matching period back `t_summ` numeric time steps. For example, if the `rast_ts_stack` provided daily values and t_summ = 90, the function would calculate a 90 day average, where the 90-day window would either be leading up to and including the day of observation, saddled around the observation, or include the day of the observation and 89 days into the future. If a character string, should be one of "daily", monthly", "seasonal", or "annual". These options are built into the function to provide a bit easier specification to quickly calculate the monthly/seasonal/annual summaries of the raster stack values. When used, this automatically defines t_position = saddle.
 #' @param t_position = A character vector of either NULL, "past", "saddle", or "future". If NULL, then values are extracted based on matching up the observation point with the dynamic raster stack at the level specified in the t_summ character vector (e.g., "daily", "monthly", "seasonal", "annual". If not, then summaries are calculated leading up to and including the observation time ("past"), saddled around around the observation time ("saddle"), or including and in the future of the observation time ("future").
+#' @param interp_nas = TRUE/FALSE logical value specifying whether observations with "NA" covariate values should take on the value of the nearest observation (in space and time) that has a non-NA value. This is implemented to account, in particular, for observations along coast and island shorelines where we might not have environmental data from regular gridded products.
 #' @param sf_points = SF spatial points object specifying the locations where we want to extract raster stack values
 #' @param date_col_name = The column name of sf_points with the date information, formatted as YYYY-MM-DD
 #' @param df_sf = Character string of "df" or "sf" signaling whether the returned object should be a dataframe or sf object 
@@ -181,7 +269,7 @@ static_extract_wrapper<- function(static_covariates_list, sf_points, date_col_na
 #' 
 #' @export
 
-dynamic_2d_extract<- function(rast_ts_stack, stack_name, t_summ, t_position, sf_points, date_col_name, df_sf){
+dynamic_2d_extract<- function(rast_ts_stack, stack_name, t_summ, t_position, interp_nas, sf_points, date_col_name, df_sf){
   
   # Custom rowMeans like function
   rowMeans_cust<- function(row_id, start_col, end_col, full_data){
@@ -198,13 +286,14 @@ dynamic_2d_extract<- function(rast_ts_stack, stack_name, t_summ, t_position, sf_
   
   # For debugging
   if(FALSE){
-    rast_ts_stack = stack_use
-    stack_name = names(dynamic_covariates_list)[[i]]
-    t_summ = t_summ
-    t_position = t_position
-    sf_points = sf_points_run
-    date_col_name = date_col_name
-    df_sf = "sf"
+    rast_ts_stack = dynamic_stacks[[1]]
+    stack_name = "BT"
+    t_summ = "seasonal"
+    t_position = NULL
+    interp_nas = TRUE
+    sf_points = all_tows_with_static_covs
+    date_col_name = "DATE"
+    df_sf = "df"
   }
   
   # A few checks...
@@ -242,9 +331,9 @@ dynamic_2d_extract<- function(rast_ts_stack, stack_name, t_summ, t_position, sf_
   # Rename the date column to be "EST_DATE" to match the function set up, This gets a bit tricky if we are running things in sequence. In other words, maybe we ran things through for SST and then want to do Chl. When we pass in the dataframe, "EST_DATE" may already exist. Going to try something else for now and pass in {{date_col_name}} below whenever EST_DATE is used
   # sf_points<- sf_points %>%
   #   rename(., "EST_DATE" := {{date_col_name}})
-  
+
   # Full extraction, all points and layers -----------------------------------------------------------
-  sf_extract<- data.frame(raster::extract(rast_ts_stack, sf_points))
+  sf_extract <- data.frame(raster::extract(rast_ts_stack, sf_points))
   
   # Getting the values we want from full extraction -------------------------
   # This leaves us with a data frame where the rows are the sf_points and then the columns are the covariate value for a given location for each of the layers (i.e., time steps) in the stack. To start with calculating any summary, we first need to know the which column provides an exact match between the time of the observation and the time in the raster stack. Then, depending on if it is a past, saddle, or future, and how many columns are specified by t_pos, we can average the necessary columns.
@@ -317,7 +406,7 @@ dynamic_2d_extract<- function(rast_ts_stack, stack_name, t_summ, t_position, sf_
       }
       
       # Deal with the "-Inf" indices, arising when there are no matches for "max"
-      summ_df[summ_df == -Inf]<- NA
+      summ_df[summ_df == -Inf] <- NA
       
       # Store it
       summ_df_list[[i]]<- summ_df
@@ -381,6 +470,24 @@ dynamic_2d_extract<- function(rast_ts_stack, stack_name, t_summ, t_position, sf_
       left_join(., point_mean, by = c("Point" = "Point")) %>%
       dplyr::select(., -Point)
   }
+
+  # Deal with NAs
+  if(interp_nas){
+    print("WARNING! You have elected to fill in NA covariate values based on their nearest, non-NA match in space and time. We recommend first running this with `interp_na = FALSE` to make sure you know what you are doing.")
+    na_row_ids<- which(is.na(sf_points[names(summ_df_list)[j]]))
+    na_points <- st_transform(sf_points[na_row_ids, ], 32619)
+    non_na_points <- st_transform(sf_points[-na_row_ids, ], 32619)
+    
+    # Get distance matrix, just do this once
+    # Calculate distances to all points in source dataset
+    # distances <- st_distance(na_points, non_na_points) # This takes a longg time
+    distances <- as.matrix(dist(st_coordinates(na_points), st_coordinates(non_na_points), method = "euclidean"))
+    
+    filled_points <- fill_na_spatiotemporal(na_pts = na_points, non_na_pts = non_na_points, dist_mat = distances, value_col = names(summ_df_list)[j], date_col = "DATE")
+
+    # Put back in
+    sf_points[na_row_ids, names(summ_df_list)[j]] <- st_drop_geometry(filled_points[, names(summ_df_list)[j]])
+  }
   
   # Save and return processed file -----------------------------------------------------------
   if(df_sf == "sf"){
@@ -412,7 +519,7 @@ dynamic_2d_extract<- function(rast_ts_stack, stack_name, t_summ, t_position, sf_
 #' @return A datafame with information of all unique tows with dynamic covariate values as new columns. This file is also saved in out_dir. 
 #' 
 #' @export
-dynamic_2d_extract_wrapper<- function(dynamic_covariates_list, t_summ, t_position, sf_points, date_col_name, df_sf, out_dir){
+dynamic_2d_extract_wrapper<- function(dynamic_covariates_list, t_summ, t_position, interp_nas, sf_points, date_col_name, df_sf, out_dir){
   # For debugging
   if(FALSE){
     tar_load(dynamic_covariates_stack)
@@ -438,7 +545,7 @@ dynamic_2d_extract_wrapper<- function(dynamic_covariates_list, t_summ, t_positio
   
   for(i in seq_along(dynamic_covariates_list)){
     stack_use<- dynamic_covariates_list[[i]]
-    temp_tows_with_covs<- dynamic_2d_extract(rast_ts_stack = stack_use, stack_name = names(dynamic_covariates_list)[[i]], t_summ = t_summ, t_position = t_position, sf_points = sf_points_run, date_col_name = date_col_name, df_sf = "sf")
+    temp_tows_with_covs<- dynamic_2d_extract(rast_ts_stack = stack_use, stack_name = names(dynamic_covariates_list)[[i]], t_summ = t_summ, t_position = t_position, interp_nas = interp_nas, sf_points = sf_points_run, date_col_name = date_col_name, df_sf = "sf")
     
     # If there are more files to go, update sf_points_run
     if(i < length(dynamic_covariates_list)){
