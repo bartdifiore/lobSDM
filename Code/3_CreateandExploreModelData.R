@@ -6,12 +6,17 @@ library(sf)
 library(terra)
 library(rnaturalearth)
 library(rnaturalearthdata)
+library(snakecase)
+library(shiny)
+library(leaflet)
+library(lubridate)
+library(bslib)
+library(scales)
 
 glorys_df <- readRDS(here::here("Data/Derived/glorys_grid.rds"))
 
 region <- ne_countries(scale = "medium", continent = "North America", returnclass = "sf")
 states <- ne_states(country = "United States of America", returnclass = "sf")
-
 
 lat_lims <- c(35.2, 48)
 lon_lims<- c(-75.8, -56.2)
@@ -22,10 +27,17 @@ lon_lims<- c(-75.8, -56.2)
 catch_data<- readRDS(here::here("Data/Derived/combined_lobsters_by_life_class.rds"))
 str(catch_data)
 
+# Need total biomass by tow/life class
+lob_df_bio <- catch_data |>
+  mutate(total_weight_at_length = number_at_length * weight_at_length) |>
+  group_by(scientific_name, trawl_id, longitude, latitude, season, year, survey, date, life_class) |>
+  summarize("total_biomass" = sum(total_weight_at_length))
+summary(lob_df_bio)
+
 env_data <- readRDS(here::here("Data/Derived/all_tows_all_covs.rds"))
 str(env_data)
 
-all_mod_data <- catch_data |>
+all_mod_data <- lob_df_bio |>
     left_join(env_data, by = c("longitude" = "DECDEG_BEGLON", "latitude" = "DECDEG_BEGLAT", "trawl_id" = "ID", "year" = "EST_YEAR", "season" = "season", "date" = "DATE", "survey" = "survey"))
 summary(all_mod_data)
 
@@ -43,32 +55,201 @@ red_mod_data <- all_mod_data |>
 
 summary(red_mod_data)
 
-# What is going on with the NAs??
-nas <- red_mod_data[is.na(red_mod_data$BT_seasonal),]
-summary(nas)
+# Question for Bart -- What is going on with the NAs for weight at length? This seems to then naturally chuck the nA for total biomass?
+na_wt_len <- catch_data |>
+    filter(is.na(weight_at_length))
+table(na_wt_len$year, na_wt_len$survey, na_wt_len$scientific_name)
 
-# Specific surveys??
-table(nas$year, nas$survey)
+na_bio <- red_mod_data |>
+    filter(is.na(total_biomass))
+head(na_bio)
 
-# Weird...plot the points and the GLORYs grid?
-nas_sf <- st_as_sf(nas, coords = c("longitude", "latitude"), crs = 4326, remove = FALSE)
+#----------------------------------
+## Interactive map of the lobster biomass data
+#----------------------------------
+# Convert data to sf object
 
-ggplot() +
-    geom_sf(data = region, fill = "white") +
-    geom_sf(data = states, color = "gray", fill = NA) +
-    geom_raster(data = glorys_df, aes(x = x, y = y, fill = value)) +
-    geom_sf(data = nas_sf) +
-    coord_sf(xlim = lon_lims, ylim = lat_lims, expand = FALSE) +
-    scale_fill_viridis_c(name = "SST example", na.value = NA) +
-    theme_minimal()
+# Create SF object
+points_sf<- st_as_sf(red_mod_data, coords = c("longitude", "latitude"), crs = 4326, remove = FALSE)
 
-ggplot() +
-    geom_sf(data = region, fill = "white") +
-    geom_sf(data = states, color = "gray", fill = NA) +
-    geom_raster(data = glorys_df, aes(x = x, y = y, fill = value)) +
-    geom_sf(data = nas_sf) +
-    coord_sf(xlim = c(-71, -69), ylim = c(41, 45), expand = FALSE) +
-    scale_fill_viridis_c(name = "SST example", na.value = NA) +
-    theme_minimal()
+ui <- page_sidebar(
+  title = "Spatio-temporal Point Data Explorer",
+  theme = bs_theme(bootswatch = "flatly"),
+  
+  sidebar = sidebar(
+    title = "Controls",
+    
+    # Add dataset selector
+    selectInput("selected_survey", "Select Survey",
+      choices = unique(points_sf$survey),
+      multiple = TRUE,
+      selected = unique(points_sf$survey)[1]
+    ),
+    
+    # selectInput("selected_year", "Select Year",
+    #   choices = unique(points_sf$year),
+    #   multiple = TRUE,
+    #   selected = unique(points_sf$year)[1]
+    # ),
 
-# As expected, some issues with the GLORYs grid and the location of some of the very nearshore samples. It'd be great to not have to drop these observations. 
+    # Replace dateInput with dateRangeInput
+    sliderInput("year_range", "Select Year Range",
+      min = min(points_sf$year, na.rm = TRUE),
+      max = max(points_sf$year, na.rm = TRUE),
+      step = 1,
+      value = c(min(points_sf$year, na.rm = TRUE), max(points_sf$year, na.rm = TRUE)),
+      sep = ""
+    ),
+
+    selectInput("selected_season", "Select Season",
+      choices = unique(points_sf$season),
+      multiple = TRUE,
+      selected = unique(points_sf$season)[1]
+    ),
+
+    selectInput("selected_life_class", "Select Life Class",
+      choices = unique(points_sf$life_class),
+      multiple = TRUE,
+      selected = unique(points_sf$life_class)[1]
+    ),
+
+    # Add basemap selector
+    selectInput("basemap", "Select Basemap",
+      choices = c(
+        "Ocean" = "ocean",
+        "Satellite" = "satellite",
+        "Terrain" = "terrain",
+        "Light" = "light"
+      ),
+      selected = "ocean"
+    ),
+
+    sliderInput("opacity", "Point Opacity",
+      min = 0, max = 1, value = 0.8
+    )
+  ),
+  
+  layout_columns(
+    fill = FALSE,
+    value_box(
+      title = "Number of Points",
+      value = textOutput("n_points"),
+      showcase = bsicons::bs_icon("geo-alt")
+    ),
+    value_box(
+      title = "Total biomass",
+      value = textOutput("total_biomass"),
+      showcase = bsicons::bs_icon("calculator")
+    ),
+    value_box(
+      title = "Survey Shown",
+      value = textOutput("n_surveys"),
+      showcase = bsicons::bs_icon("database")
+    ),
+    value_box(
+      title = "Year Range",
+      value = textOutput("year_range"),
+      showcase = bsicons::bs_icon("calendar-range")
+    )
+  ),
+  
+  card(
+    full_screen = TRUE,
+    card_header("Interactive Map"),
+    leafletOutput("map", height = "600px")
+  )
+)
+
+server <- function(input, output, session) {
+
+  #  # Create a reactive expression for the scaled sizes
+  # point_sizes <- reactive({
+  #   # Rescale values to a reasonable range for circle markers
+  #   # rescale() maps the values to a range between 5 and 30,
+  #   # then multiply by the user's size multiplier
+  #   rescale(locations$value, to = c(5, 30)) * input$size_multiplier
+  # })
+
+  # Filter data for selected date and dataset
+  filtered_data <- reactive({
+    points_sf %>%
+      filter(
+        between(year, input$year_range[1], input$year_range[2]),
+        survey %in% input$selected_survey,
+        # year %in% input$selected_year,
+        season %in% input$selected_season,
+        life_class %in% input$selected_life_class
+      )
+  })
+  
+  # Create map
+  output$map <- renderLeaflet({
+    data <- filtered_data()
+    
+    pal <- colorFactor(
+        palette = c('#1b9e77','#d95f02','#7570b3','#e7298a'),
+        domain = NULL
+    )
+    
+    # Base map with different tile options
+    map <- leaflet() %>%
+      setView(lng = mean(st_coordinates(points_sf)[,1]), 
+              lat = mean(st_coordinates(points_sf)[,2]), 
+              zoom = 5)
+    
+    # Add appropriate basemap based on selection
+    map <- switch(input$basemap,
+      "ocean" = map %>% addProviderTiles(providers$CartoDB.DarkMatter),
+      "satellite" = map %>% addProviderTiles(providers$Esri.WorldImagery),
+      "terrain" = map %>% addProviderTiles(providers$Stamen.Terrain),
+      "light" = map %>% addProviderTiles(providers$CartoDB.Positron)
+    )
+    
+    map %>%
+      addTiles() %>%
+      addCircleMarkers(
+        data = data,
+        radius = rescale(filtered_data()$total_biomass, to = c(5, 30)),
+        color = ~pal(survey),
+        fillOpacity = input$opacity,
+        popup = ~paste(
+          "Survey:", survey, "<br>",
+          "Biomass:", round(total_biomass, 2), "<br>",
+          "Year:", year, "<br>",
+          "Season", season, "<br>",
+          "Life Class", life_class
+        )
+      ) %>%
+      addLegend(
+        position = "bottomright",
+        pal = pal,
+        values = unique(points_sf$survey),
+        title = "Surveys"
+      )
+  })
+  
+  # Summary statistics
+  output$n_points <- renderText({
+    nrow(filtered_data())
+  })
+  
+  output$total_biomass <- renderText({
+    total_biomass <- sum(filtered_data()$total_biomass, na.rm = TRUE)
+    round(total_biomass, 2)
+  })
+  
+  output$n_surveys <- renderText({
+    length(input$selected_survey)
+  })
+
+  output$year_range <- renderText({
+    paste(input$year_range[1], "to", input$year_range[2])
+  })
+}
+
+# When launching the app
+app_object <- shinyApp(ui, server)
+runApp(app_object)
+
+# To stop it programmatically
+stopApp()
