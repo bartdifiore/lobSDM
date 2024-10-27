@@ -38,7 +38,12 @@ env_data <- readRDS(here::here("Data/Derived/all_tows_all_covs.rds"))
 str(env_data)
 
 all_mod_data <- lob_df_bio |>
-    left_join(env_data, by = c("longitude" = "DECDEG_BEGLON", "latitude" = "DECDEG_BEGLAT", "trawl_id" = "ID", "year" = "EST_YEAR", "season" = "season", "date" = "DATE", "survey" = "survey"))
+  # Adjust the "true" NA's before adding implicit NA values
+  replace_na(list(total_biomass = 99999)) |>
+  full_join(env_data, by = c("longitude" = "DECDEG_BEGLON", "latitude" = "DECDEG_BEGLAT", "trawl_id" = "ID", "year" = "EST_YEAR", "season" = "season", "date" = "DATE", "survey" = "survey")) |>
+  # Make NAs 0, and then change 99999 fill to NAs
+  replace_na(list(total_biomass = 0)) |>
+  mutate(total_biomass = na_if(total_biomass, 99999))
 summary(all_mod_data)
 
 write_rds(all_mod_data, "Data/Derived/all_model_data.rds", compress = "gz")
