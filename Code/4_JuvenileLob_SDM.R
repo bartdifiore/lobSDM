@@ -1,16 +1,17 @@
 #----------------------------------
-## Libraries
+## Libraries and preliminaries
 #----------------------------------
-
 library(tidyverse)
 library(sdmTMB)
 library(sdmTMBextra)
 
-
-x <- rnorm(1000)
+# Scaling/unscaling function to facilitate model convergence
+set.seed(13)
+x <- rnorm(100)
 
 scaled_x <- scale(x)
-unscaled_x <- (scaled_x * attr(scaled_x, "scaled:scale")) + attr(scaled_x, "scaled:center")
+unscaled_x <- as.numeric((scaled_x * attr(scaled_x, "scaled:scale")) + attr(scaled_x, "scaled:center"))
+all.equal(x, unscaled_x)
   
 unscale <- function(scaled_x, center, scale){
   if(is.null(attr(scaled_x, "scaled:scale")) == F){
@@ -25,78 +26,80 @@ unscale <- function(scaled_x, center, scale){
 #----------------------------------
 ## Get data
 #----------------------------------
+all_mod_data<- readRDS(here::here("Data/Derived/all_model_data.rds"))
 
-covariates <- read_rds("Data/Derived/all_tows_all_covs.rds") %>% 
-  rename(trawl_id = ID, year = EST_YEAR, latitude = DECDEG_BEGLAT, longitude = DECDEG_BEGLON) %>%
-  select(trawl_id, latitude, longitude, season, year, survey, Depth, BT_seasonal)
+# Focus on just lobster, and during GLORYs time series
+year_min <- 1993
+year_max <- 2023
 
-df <- read_rds("Data/Derived/combined_and_filtered_lobsters.rds") %>%
-  mutate(total_weight_at_length = number_at_length*weight_at_length) %>%
-  group_by(trawl_id, longitude, latitude, season, year, survey, date) %>% 
-  summarize(biomass = sum(total_weight_at_length)) %>%
-  full_join(covariates) %>%
-  janitor::clean_names() %>%
-  drop_na(bt_seasonal, depth, year) %>%
-  replace_na(list(biomass=0)) # Zero fill tows in which juvenile lobster where NOT found
+red_mod_data <- all_mod_data |>
+  filter(life_class == "juvenile") |>
+  filter(between(year, year_min, year_max)) 
 
-names(df)
+summary(red_mod_data)
+
+# Still some weird NA biomass values to figure out, dropping those for now
+mod_data<- red_mod_data |>
+  drop_na(total_biomass)
+summary(mod_data)
+
+# What the heck is going on with that 2014 value?
+t<- mod_data[which.max(mod_data$total_biomass),]
+plot(mod_data$total_biomass)
+
+# Doesn't seem like there is anyway that point is real.
+mod_data<- mod_data[-which.max(mod_data$total_biomass),]
+plot(mod_data$total_biomass)
 
 #----------------------------------
-## AA data prep trickery
+## Model Data Prep for fitting seasonal model
 #----------------------------------
 
 # Going to want to have a continuous time column
-all_years<- seq(from = min(df$year), to = max(df$year))
+all_years<- seq(from = min(mod_data$year), to = max(mod_data$year))
 seasons<- c("Spring", "Summer", "Fall")
 time_fac_levels<- paste(rep(all_years, each = length(unique(seasons))), seasons, sep = "_")
 time_ints<- as.numeric(factor(time_fac_levels, levels = time_fac_levels))
 
-df <- df %>%
+mod_data <- mod_data |>
   mutate(season = factor(season, levels = seasons),
          year_season_fac = factor(paste(year, season, sep = "_"), levels = time_fac_levels),
          year_season_int = as.numeric(year_season_fac)) %>%
   arrange(year_season_int)
 
 # Now for the model matrix trickery
-mm_season <- model.matrix(~ 0 + factor(season), data = df)
-# mm_year <- model.matrix(~ 0 + factor(est_year), data = dat)
+mm_season <- model.matrix(~ 0 + factor(season), data = mod_data)
+# mm_year <- model.matrix(~ 0 + factor(est_year), data = dat) 
 
-df_mod <- df |>
+mod_data <- mod_data |>
   select(!contains("factor")) |>
   cbind(mm_season) |>
   #   cbind(mm_year) |>
   as_tibble()
 
-fa <- names(df_mod)[grepl("factor", names(df_mod))]
+fa <- names(mod_data)[grepl("factor", names(mod_data))]
 fo <- paste0("`", paste(fa, collapse = "` + `"), "`")
 svc <- as.formula(paste("~", fo))
 
 # Check
 svc
 
-
-
 #----------------------------------
 ## Make mesh
 #----------------------------------
-
-df_mod <- df_mod %>%
+# This is definitely something we will want to come back to after we have gotten things up and running through to model inferences. 
+mod_data <- mod_data %>%
   sdmTMB::add_utm_columns(ll_names = c("longitude", "latitude"), units = "km") 
 
-# Create sdmTMB mesh -- check out Owen Liu's code here (https://github.com/owenrliu/eDNA_eulachon/blob/63a1b4d21fa4ffbc629cbb0657bc032998565f17/scripts/eulachon_sdms.Rmd#L217) for more ideas?
-sdmTMB_mesh<- sdmTMB::make_mesh(df_mod, xy_cols = c("X", "Y"), type = "cutoff", cutoff = 30, fmesher_func = fmesher::fm_mesh_2d_inla)
+# Create sdmTMB mesh -- check out Owen Liu's code here (https://github.com/owenrliu/eDNA_eulachon/blob/63a1b4d21fa4ffbc629cbb0657bc032998565f17/scripts/eulachon_sdms.Rmd#L217) for more ideas? This was taking forever, and no idea why...
+# sdmTMB_mesh<- sdmTMB::make_mesh(mod_data, xy_cols = c("longitude", "latitude"), type = "cutoff", cutoff = 100, fmesher_func = fmesher::fm_mesh_2d_inla)
+sdmTMB_mesh <- sdmTMB::make_mesh(mod_data, xy_cols = c("longitude", "latitude"), n_knots = 200, type = "kmeans")
+# sdmTMB_mesh<- readRDS("~/Desktop/mesh_20241026_170037.rds")
 plot(sdmTMB_mesh)
-
-
-df_mod %>% 
-  group_by(survey) %>% 
-  summarize(total = sum(biomass))
-
 
 #----------------------------------
 ## Fit model 0
 #----------------------------------
-
 #| label: Basic environment-only SDM
 #| include: false
 #| echo: false
@@ -104,8 +107,8 @@ df_mod %>%
 
 # Starting with the most simple model that just includes the environmental covariates.
 fit0<- sdmTMB(
-  biomass ~ s(depth, k = 4) + s(bt_seasonal, k = 4),
-  data = df_mod,
+  total_biomass ~ s(Depth, k = 4) + s(BT_seasonal, k = 4),
+  data = mod_data,
   spatial = "off",
   # offset = dat_mod$swept, 
   # anisotropy = FALSE, 
@@ -117,7 +120,7 @@ fit0<- sdmTMB(
   # time_varying_type = "ar1",
   extra_time = NULL,
   mesh = sdmTMB_mesh,
-  family = delta_lognormal(type = "poisson-link"), 
+  family = gengamma(link = "log"), 
   silent = FALSE,
   do_fit = TRUE
 )
@@ -130,7 +133,6 @@ names(fit0$smoothers) # All in here...
 str(fit0$smoothers$basis_out) # List, one element for each smooth term, within each list element all the information of the fitted smooth is included
 
 
-
 #----------------------------------
 ## Fit model 1
 #----------------------------------
@@ -141,8 +143,8 @@ str(fit0$smoothers$basis_out) # List, one element for each smooth term, within e
 #| warning: false
 
 fit1<- sdmTMB(
-  biomass ~ factor(season) + factor(survey) + s(depth, k = 4) + s(bt_seasonal, k = 4),
-  data = df_mod,
+  total_biomass ~ factor(season) + factor(survey) + s(Depth, k = 4) + s(BT_seasonal, k = 4),
+  data = mod_data,
   spatial = "off",
   # offset = dat_mod$swept, 
   # anisotropy = TRUE, 
@@ -154,13 +156,12 @@ fit1<- sdmTMB(
   # time_varying_type = "ar1",
   extra_time = NULL,
   mesh = sdmTMB_mesh,
-  family = delta_lognormal(type = "poisson-link"), 
+  family = gengamma(link = "log"), 
   silent = FALSE,
   do_fit = TRUE
 )
 
 tidy(fit1, model = 1, effects = "fixed")
-
 
 
 #----------------------------------
@@ -173,8 +174,8 @@ tidy(fit1, model = 1, effects = "fixed")
 #| warning: false
 
 fit2<- sdmTMB(
-  biomass ~ + factor(season) + factor(survey) + s(depth, k = 4) + s(bt_seasonal, k = 4),
-  data = df_mod,
+  total_biomass ~ + factor(season) + factor(survey) + s(Depth, k = 4) + s(BT_seasonal, k = 4),
+  data = mod_data,
   spatial = "off",
   # offset = dat_mod$swept, 
   # anisotropy = TRUE, 
@@ -186,7 +187,7 @@ fit2<- sdmTMB(
   time_varying_type = "ar1", # RW default
   extra_time = NULL,
   mesh = sdmTMB_mesh,
-  family = delta_lognormal(type = "poisson-link"), 
+  family = gengamma(link = "log"), 
   silent = FALSE,
   do_fit = TRUE
 )
@@ -232,13 +233,13 @@ ggplot() +
 ## Fit model 3
 #----------------------------------
 
-n_seasons <- length(unique(df_mod$season)) 
+n_seasons <- length(unique(mod_data$season)) 
 tau_Z_map <- factor(cbind(rep(1, n_seasons), rep(2, n_seasons)))
 
 fit3<- sdmTMB(
-  biomass ~ factor(season) + factor(survey) + s(depth, k = 4) + s(bt_seasonal, k = 4),
+  total_biomass ~ factor(season) + factor(survey) + s(Depth, k = 4) + s(BT_seasonal, k = 4),
   control = sdmTMBcontrol(map = list(ln_tau_Z = tau_Z_map)),
-  data = df_mod,
+  data = mod_data,
   spatial = "off",
   # offset = dat_mod$swept, 
   # anisotropy = TRUE, 
@@ -250,7 +251,7 @@ fit3<- sdmTMB(
   time_varying_type = "ar1",
   extra_time = NULL,
   mesh = sdmTMB_mesh,
-  family = delta_lognormal(type = "poisson-link"), 
+  family = gengamma(link = "log"), 
   silent = FALSE,
   do_fit = TRUE
 )
@@ -260,15 +261,13 @@ tidy(fit3, effects = "ran_pars") # Now have range, and three sigma_Z's, represen
 fit3
 sanity(fit3)
 
-
-
 #----------------------------------
 ## Fit model 4
 #----------------------------------
 
 fit4<- sdmTMB(
-  biomass ~ factor(season) + factor(survey) + s(depth, k = 4) + s(bt_seasonal, k = 4),
-  data = df_mod,
+  total_biomass ~ factor(season) + factor(survey) + s(Depth, k = 4) + s(BT_seasonal, k = 4),
+  data = mod_data,
   spatial = "on",
   # offset = dat_mod$swept, 
   anisotropy = TRUE, 
@@ -280,7 +279,7 @@ fit4<- sdmTMB(
   time_varying_type = "ar1",
   extra_time = NULL,
   mesh = sdmTMB_mesh,
-  family = delta_lognormal(type = "poisson-link"), 
+  family = gengamma(link = "log"), 
   silent = FALSE,
   do_fit = TRUE
 )
@@ -295,12 +294,13 @@ sanity(fit4)
 ## Fit model 5
 #----------------------------------
 
-fit5<- sdmTMB(
-  biomass ~ factor(season) + factor(survey) + s(depth, k = 4) + s(bt_seasonal, k = 4),
-  data = df_mod,
+tictoc::tic()
+fit5 <- sdmTMB(
+  total_biomass ~ factor(season) + factor(survey) + s(Depth, k = 4) + s(BT_seasonal, k = 4),
+  data = mod_data,
   spatial = "on",
-  # offset = dat_mod$swept, 
-  anisotropy = TRUE, 
+  # offset = dat_mod$swept,
+  anisotropy = TRUE,
   share_range = FALSE,
   spatiotemporal = "ar1",
   spatial_varying = svc,
@@ -309,10 +309,12 @@ fit5<- sdmTMB(
   time_varying_type = "ar1",
   extra_time = NULL,
   mesh = sdmTMB_mesh,
-  family = delta_lognormal(type = "poisson-link"), 
+  family = gengamma(link = "log"),
   silent = FALSE,
   do_fit = TRUE
 )
+tictoc::toc()
+
 
 tidy(fit5, effects = "fixed")
 tidy(fit5, effects = "ran_pars")
