@@ -366,7 +366,9 @@ tidy(fit_bd, effects = "ran_pars")
 fit_bd
 sanity(fit_bd)
 
-write_rds(fit_bd, "Data/Derived/model_fitbd", compress = "gz")
+write_rds(fit_bd, "Data/Derived/model_fitbd.rds", compress = "gz")
+
+
 
 nd <- df_mod2 %>% 
   ungroup() %>%
