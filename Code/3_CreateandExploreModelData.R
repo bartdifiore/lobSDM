@@ -31,22 +31,56 @@ str(catch_data)
 lob_df_bio <- catch_data |>
   mutate(total_weight_at_length = number_at_length * weight_at_length) |>
   group_by(scientific_name, trawl_id, longitude, latitude, season, year, survey, date, life_class) |>
-  summarize("total_biomass" = sum(total_weight_at_length))
+  summarize("total_biomass" = sum(total_weight_at_length)) |>
+  ungroup()
 summary(lob_df_bio)
 
 env_data <- readRDS(here::here("Data/Derived/all_tows_all_covs.rds"))
 str(env_data)
+env_tows<- unique(env_data$ID)
 
-all_mod_data <- lob_df_bio |>
+all_adult_data<- lob_df_bio |>
+  filter(life_class == "adult") |>
   # Adjust the "true" NA's before adding implicit NA values
-  replace_na(list(total_biomass = 99999)) |>
-  full_join(env_data, by = c("longitude" = "DECDEG_BEGLON", "latitude" = "DECDEG_BEGLAT", "trawl_id" = "ID", "year" = "EST_YEAR", "season" = "season", "date" = "DATE", "survey" = "survey")) |>
+  replace_na(list(total_biomass = 99999)) 
+adult_tows<- unique(all_adult_data$trawl_id)
+
+all_adult_data<- all_adult_data |>
+  full_join(env_data, by = c("longitude" = "DECDEG_BEGLON", "latitude" = "DECDEG_BEGLAT", "trawl_id" = "ID",  "year" = "EST_YEAR", "season" = "season", "date" = "DATE", "survey" = "survey")) |>
   # Make NAs 0, and then change 99999 fill to NAs
   replace_na(list(total_biomass = 0)) |>
-  mutate(total_biomass = na_if(total_biomass, 99999))
-summary(all_mod_data)
+  mutate(total_biomass = na_if(total_biomass, 99999)) |>
+  mutate(life_class = "adult")
+adult_tows_mod<- unique(all_adult_data$trawl_id)
+all(env_tows %in% adult_tows_mod)
 
-write_rds(all_mod_data, "Data/Derived/all_model_data.rds", compress = "gz")
+all_juve_data<- lob_df_bio |>
+  filter(life_class == "juvenile") |>
+  # Adjust the "true" NA's before adding implicit NA values
+  replace_na(list(total_biomass = 99999)) 
+
+all_juve_data<- all_juve_data |>
+  full_join(env_data, by = c("longitude" = "DECDEG_BEGLON", "latitude" = "DECDEG_BEGLAT", "trawl_id" = "ID",  "year" = "EST_YEAR", "season" = "season", "date" = "DATE", "survey" = "survey")) |>
+  # Make NAs 0, and then change 99999 fill to NAs
+  replace_na(list(total_biomass = 0)) |>
+  mutate(total_biomass = na_if(total_biomass, 99999)) |>
+  mutate(life_class = "juvenile")
+juve_tows_mod<- unique(all_juve_data$trawl_id)
+all(env_tows %in% juve_tows_mod)
+all(adult_tows_mod %in% juve_tows_mod)
+all(juve_tows_mod %in% adult_tows_mod)
+
+all_mod_data <- bind_rows(all_adult_data, all_juve_data) |>
+  arrange(date)
+summary(all_mod_data)
+all(all_mod_data$trawl_id %in% env_tows)
+all(env_tows %in% all_mod_data$trawl_id)
+
+# Every tow should have two observations and the unique tows should be the same as the ones in the environmental data
+t<- table(all_mod_data$trawl_id)
+length(unique(all_mod_data$trawl_id)) == length(unique(env_data$ID))
+
+write_rds(all_mod_data, here::here("Data/Derived/all_model_data.rds"), compress = "gz")
 
 #----------------------------------
 ## Pre-model data exploration
@@ -61,6 +95,9 @@ red_mod_data <- all_mod_data |>
 summary(red_mod_data)
 
 # Question for Bart -- What is going on with the NAs for weight at length? This seems to then naturally chuck the nA for total biomass?
+t<- is.na(catch_data$weight_at_length)
+t2<- catch_data[t,]
+View(t2)
 na_wt_len <- catch_data |>
     filter(is.na(weight_at_length))
 table(na_wt_len$year, na_wt_len$survey, na_wt_len$scientific_name)

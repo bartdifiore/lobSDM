@@ -258,8 +258,8 @@ static_extract_wrapper<- function(static_covariates_list, sf_points, interp_nas,
 #'
 #' @param rast_ts_stack = A raster stack of one covariate variable, where each layer represents a different time step
 #' @param stack_name = The column name to use for the extracted value for the dynamic covariate 
-#' @param t_summ = A numeric value or character string that indicates what temporal resolution should be used in summarizing the covariate values. If numeric, the function will simply summarize the values in the raster stack from the matching period back `t_summ` numeric time steps. For example, if the `rast_ts_stack` provided daily values and t_summ = 90, the function would calculate a 90 day average, where the 90-day window would either be leading up to and including the day of observation, saddled around the observation, or include the day of the observation and 89 days into the future. If a character string, should be one of "daily", monthly", "seasonal", or "annual". These options are built into the function to provide a bit easier specification to quickly calculate the monthly/seasonal/annual summaries of the raster stack values. When used, this automatically defines t_position = saddle.
-#' @param t_position = A character vector of either NULL, "past", "saddle", or "future". If NULL, then values are extracted based on matching up the observation point with the dynamic raster stack at the level specified in the t_summ character vector (e.g., "daily", "monthly", "seasonal", "annual". If not, then summaries are calculated leading up to and including the observation time ("past"), saddled around around the observation time ("saddle"), or including and in the future of the observation time ("future").
+#' @param t_summ = A numeric value or character string that indicates what temporal resolution should be used in summarizing the covariate values. If numeric, the function will simply summarize the values in the raster stack from the matching period back `t_summ` numeric time steps. For example, if the `rast_ts_stack` provided daily values and t_summ = 90, the function would calculate a 90 day average, where the 90-day window would either be leading up to and including the day of observation, saddled around the observation, or include the day of the observation and 89 days into the future. If a character string, should be one of "daily", monthly", "seasonal", "annual", or "match". These options are built into the function to provide a bit easier specification to quickly calculate the monthly/seasonal/annual summaries of the raster stack values. When used, this automatically defines t_position = saddle.
+#' @param t_position = A character vector of either NULL, "past", "saddle", or "future". If NULL, then values are extracted based on matching up the observation point with the dynamic raster stack at the level specified in the t_summ character vector (e.g., "daily", "monthly", "seasonal", "annual", "match". If not, then summaries are calculated leading up to and including the observation time ("past"), saddled around around the observation time ("saddle"), or including and in the future of the observation time ("future").
 #' @param interp_nas = TRUE/FALSE logical value specifying whether observations with "NA" covariate values should take on the value of the nearest observation (in space and time) that has a non-NA value. This is implemented to account, in particular, for observations along coast and island shorelines where we might not have environmental data from regular gridded products.
 #' @param sf_points = SF spatial points object specifying the locations where we want to extract raster stack values
 #' @param date_col_name = The column name of sf_points with the date information, formatted as YYYY-MM-DD
@@ -288,20 +288,20 @@ dynamic_2d_extract<- function(rast_ts_stack, stack_name, t_summ, t_position, int
   if(FALSE){
     rast_ts_stack = dynamic_stacks[[1]]
     stack_name = "BT"
-    t_summ = "seasonal"
+    t_summ = "match"
     t_position = NULL
     interp_nas = TRUE
     sf_points = all_tows_with_static_covs
-    date_col_name = "DATE"
+    date_col_name = "Date"
     df_sf = "df"
   }
   
   # A few checks...
   # If t_summ is a character, does it match one of "daily", monthly", "seasonal", or "annual" AND is t_position set to NULL?
   if(is.character(t_summ)){
-    t_summ_check<- t_summ %in% c("daily", "monthly", "seasonal", "annual") & is.null(t_position)
+    t_summ_check<- t_summ %in% c("daily", "monthly", "seasonal", "annual", "match") & is.null(t_position)
     if(!t_summ_check){
-      print("Check 't_summ' argument and 't_position'. 't_summ' must be one of 'daily', monthly', 'seasonal' or 'annual' and 't_position' = NULL")
+      print("Check 't_summ' argument and 't_position'. 't_summ' must be one of 'daily', monthly', 'seasonal', 'annual', 'match' and 't_position' = NULL")
       stop()
     }
   }
@@ -357,13 +357,14 @@ dynamic_2d_extract<- function(rast_ts_stack, stack_name, t_summ, t_position, int
       # Get the exact date match
       sf_points_date_col<- as.character(st_drop_geometry(sf_points[,{{date_col_name}}])[,1])
       sf_points_date_col<- switch(t_summ_use,
+                                  "match" = ymd(sf_points_date_col),
                                   "daily" = ymd(sf_points_date_col),
                                   "monthly" = format(as.Date(sf_points_date_col), "%Y-%m"),
                                   "seasonal" = format(as.Date(sf_points_date_col), "%Y-%m"),
                                   "annual" = format(as.Date(sf_points_date_col), "%Y"))
       
       # May need to revisit this at some point, but for now, shouldn't influence the results..
-      if(t_summ_use == "daily"){
+      if(t_summ_use == "daily" | t_summ_use == "match"){
         summ_df$Date_Match<- match(sf_points_date_col, as.Date(colnames(sf_extract)))
       } 
       if(t_summ_use == "monthly" | t_summ_use == "seasonal"){
@@ -377,7 +378,10 @@ dynamic_2d_extract<- function(rast_ts_stack, stack_name, t_summ, t_position, int
       if(t_summ_use != "seasonal"){
         # Might need to come back and check this!
         rast_ts_dates<- as.Date(gsub("X", "", gsub("[.]", "-", names(rast_ts_stack))))
-        
+        if(t_summ_use == "match"){
+          summ_df$Start_Summ<- summ_df$Date_Match
+          summ_df$End_Summ<- summ_df$Date_Match
+        } 
         if(t_summ_use == "daily"){
           summ_df$Start_Summ<- match(sf_points_date_col, as.Date(colnames(sf_extract)))
           summ_df$End_Summ<- match(sf_points_date_col, as.Date(colnames(sf_extract)))
@@ -457,14 +461,14 @@ dynamic_2d_extract<- function(rast_ts_stack, stack_name, t_summ, t_position, int
       dplyr::filter(., Start_Summ > 0)
     
     # Calculate mean given start and end column index of extraction file and row based on observation point ID
-    sf_extract_mean<- summ_df_comp %>% 
+    sf_extract_mean <- summ_df_comp %>%
       mutate(., "Summ_Val" = pmap_dbl(list(row_id = Point, start_col = Start_Summ, end_col = End_Summ, full_data = list(sf_extract)), rowMeans_cust))
     
     # Don't need to keep all the columns, just point and summ_val. Rename to match stack and t_summ
     point_mean<- sf_extract_mean %>%
-      dplyr::select(., Point, Summ_Val)
+        dplyr::select(., Point, Summ_Val)
     names(point_mean)[2]<- names(summ_df_list)[j]
-    
+
     # Join back to original trawl sf_points
     sf_points<- sf_points %>%
       left_join(., point_mean, by = c("Point" = "Point")) %>%
