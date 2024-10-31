@@ -47,60 +47,97 @@ mod_data_unique<- mod_data |>
 #----------------------------------
 
 ui <- page_sidebar(
-  title = "Mesh Explorer for sdmTMB",
+  title = "sdmTMB mesh explorer",
   sidebar = sidebar(
-    numericInput("cutoff", "Mesh cutoff",
-      value = 10000, min = 10, max = 200, step = 10
+    # Mesh method selection
+    selectInput("mesh_type", "Mesh creation method",
+      choices = c("cutoff", "cutoff_search", "kmeans"),
+      selected = "cutoff"),
+    
+    # Mesh parameters that change based on method
+    conditionalPanel(
+      condition = "input.mesh_type == 'kmeans'",
+      numericInput("n_knots", "Number of knots", 
+        value = 100, min = 10, max = 500, step = 10)
     ),
+    conditionalPanel(
+      condition = "input.mesh_type != 'kmeans'",
+      numericInput("cutoff", "Distance cutoff", 
+        value = 600, min = 5, max = 600, step = 5)
+    ),
+    
+    # Add a download button
     downloadButton("downloadMesh", "Download Mesh")
-    # numericInput("n_knots", "Number of knots",
-    #   value = 50, min = 10, max = 200, step = 10
-    # ),
-    # numericInput("type", "Type (1 = cutoff, 2 = kmeans)",
-    #   value = 1, min = 1, max = 2, step = 1
-    # )
   ),
-  layout_columns(
-    fill = FALSE,
-    value_box(
-      title = "Number of Vertices",
-      value = textOutput("n_vertices")
-    ),
-    value_box(
-      title = "Number of Triangles",
-      value = textOutput("n_triangles")
-    )
-  ),
+
+  # Layout stuff
+  # layout_columns(
+  #   fill = FALSE,
+  #   value_box(
+  #     title = "Number of Vertices",
+  #     value = textOutput("n_vertices")
+  #   ),
+  #   value_box(
+  #     title = "Number of Triangles",
+  #     value = textOutput("n_triangles")
+  #   )
+  # ),
   card(
     card_header("Mesh Visualization"),
     plotOutput("mesh_plot", height = "600px")
+  ),
+    # Main panel with mesh plot and statistics
+  card(
+    card_header("Mesh Statistics"),
+    tableOutput("mesh_stats")
   )
 )
 
 server <- function(input, output) {
   mesh <- reactive({
-    sdmTMB::make_mesh(mod_data, 
-    xy_cols = c("longitude", "latitude"), 
-    type = "cutoff", 
-    cutoff = input$cutoff, 
-    fmesher_func = fmesher::fm_mesh_2d_inla)
-  })
-
-  output$n_vertices <- renderText({
-    length(mesh()$mesh$n)
-  })
-
-  output$n_triangles <- renderText({
-    nrow(mesh()$mesh$graph$tv)
+    # Force reactivity to key parameters
+    input$mesh_type
+    input$n_knots
+    input$cutoff
+    
+    # Set parameters
+    mesh_args <- list(
+      data = mod_data,
+      xy_cols = c("longitude", "latitude"),
+      type = input$mesh_type
+    )
+    
+    # Add additional params based on mesh type
+    if (input$mesh_type == "kmeans") {
+      mesh_args$n_knots = input$n_knots
+    } else {
+      mesh_args$cutoff <- input$cutoff
+    }
+    
+    do.call(make_mesh, mesh_args)
   })
 
   output$mesh_plot <- renderPlot({
-    current_mesh <- mesh()
-    plot(current_mesh$mesh,
+    req(mesh())
+
+    plot(mesh()$mesh,
       main = "",
       asp = 1
     )
     # points(mod_data_unique$longitude, mod_data_unique$latitude, col = "#2b8cbe", pch = 16, size = 0.5, alpha = 0.5)
+  })
+
+  # Output mesh statistics
+  output$mesh_stats <- renderTable({
+    req(mesh())
+
+    data.frame(
+      Statistic = c("Number of vertices", "Number of triangles"),
+      Value = c(
+        length(mesh()$mesh$loc[, 1]),
+        nrow(mesh()$mesh$graph$tv)
+      )
+    )
   })
 
   # Download handler
