@@ -91,11 +91,11 @@ lon_lims<- c(-76, -56.2)
 ## Get data
 #----------------------------------
 all_mod_data<- readRDS(here::here("Data/Derived/all_model_data.rds"))
-all(all_mod_data$trawl_id %in% env_tows)
-all(env_tows %in% all_mod_data$trawl_id)
+# all(all_mod_data$trawl_id %in% env_tows)
+# all(env_tows %in% all_mod_data$trawl_id)
 # Every tow should have two observations and the unique tows should be the same as the ones in the environmental data
 t<- table(all_mod_data$trawl_id)
-length(unique(all_mod_data$trawl_id)) == length(unique(env_data$ID))
+# length(unique(all_mod_data$trawl_id)) == length(unique(env_data$ID))
 
 # Focus on just lobster, and during GLORYs time series
 year_min <- 1993
@@ -205,6 +205,7 @@ fit0<- sdmTMB(
   extra_time = NULL,
   mesh = sdmTMB_mesh,
   family = tweedie(), 
+  # family = gengamma(link = "log"),
   silent = FALSE,
   do_fit = TRUE
 )
@@ -302,7 +303,7 @@ fit1<- sdmTMB(
   # time_varying_type = "ar1",
   extra_time = NULL,
   mesh = sdmTMB_mesh,
-  family = gengamma(link = "log"), 
+  family = tweedie(), 
   silent = FALSE,
   do_fit = TRUE
 )
@@ -319,6 +320,8 @@ tidy(fit1, model = 1, effects = "fixed")
 #| echo: false
 #| warning: false
 
+# Importantly, here we are going to switch the "extra_time" argument to be a continuous vector of all year-season combinations. This will help fill in missing gaps.
+
 fit2<- sdmTMB(
   total_biomass ~ + factor(season) + factor(survey) + s(Depth, k = 4) + s(BT_seasonal, k = 4),
   data = mod_data,
@@ -331,9 +334,9 @@ fit2<- sdmTMB(
   time = "year_season_int",
   time_varying = ~ 0 + year_season_int,
   time_varying_type = "ar1", # RW default
-  extra_time = NULL,
+  extra_time = time_ints,
   mesh = sdmTMB_mesh,
-  family = gengamma(link = "log"), 
+  family = tweedie(), 
   silent = FALSE,
   do_fit = TRUE
 )
@@ -387,7 +390,6 @@ n_seasons <- length(unique(mod_data$season))
 # tau_Z_map <- factor(cbind(rep(1, n_seasons), rep(2, n_seasons))) # Delta model, two LPs
 tau_Z_map <- factor(cbind(rep(1, n_seasons)))
 
-fit3<- readRDS(here::here("Juve_Fit3.rds"))
 fit3<- sdmTMB(
   total_biomass ~ factor(season) + factor(survey) + s(Depth, k = 4) + s(BT_seasonal, k = 4),
   control = sdmTMBcontrol(map = list(ln_tau_Z = tau_Z_map)),
@@ -401,9 +403,9 @@ fit3<- sdmTMB(
   time = "year_season_int",
   time_varying = ~ 0 + year_season_int,
   time_varying_type = "ar1",
-  extra_time = NULL,
+  extra_time = time_ints,
   mesh = sdmTMB_mesh,
-  family = gengamma(link = "log"), 
+  family = tweedie(), 
   silent = FALSE,
   do_fit = TRUE
 )
@@ -423,7 +425,7 @@ write_rds(fit3, here::here("Juve_Fit3.rds"), compress = "gz")
 #| echo: false
 #| warning: false
 
-fit4<- readRDS(here::here("Juve_Fit4.rds"))
+
 fit4<- sdmTMB(
   total_biomass ~ factor(season) + factor(survey) + s(Depth, k = 4) + s(BT_seasonal, k = 4),
   control = sdmTMBcontrol(map = list(ln_tau_Z = tau_Z_map)),
@@ -437,9 +439,9 @@ fit4<- sdmTMB(
   time = "year_season_int",
   time_varying = ~ 0 + year_season_int,
   time_varying_type = "ar1",
-  extra_time = NULL,
+  extra_time = time_ints,
   mesh = sdmTMB_mesh,
-  family = gengamma(link = "log"), 
+  family = tweedie(), 
   silent = FALSE,
   do_fit = TRUE
 )
@@ -447,7 +449,7 @@ fit4<- sdmTMB(
 tidy(fit4, effects = "fixed")
 tidy(fit4, effects = "ran_pars")
 fit4
-sanity(fit4)
+sanity(fit4) # Smooth sigma issue!
 
 write_rds(fit4, here::here("Juve_Fit4.rds"), compress = "gz")
 
@@ -473,9 +475,9 @@ fit5 <- sdmTMB(
   time = "year_season_int",
   time_varying = ~ 0 + year_season_int,
   time_varying_type = "ar1",
-  extra_time = NULL,
+  extra_time = time_ints,
   mesh = sdmTMB_mesh,
-  family = gengamma(link = "log"),
+  family = tweedie(),
   silent = FALSE,
   do_fit = TRUE
 )
@@ -487,5 +489,4 @@ sanity(fit5)
 
 write_rds(fit5, here::here("Juve_Fit5.rds"), compress = "gz")
 
-write_rds(fit4, here::here("Juve_Fit4.rds"), compress = "gz")
 

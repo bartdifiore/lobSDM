@@ -1,0 +1,452 @@
+---
+title: "Juvenile Lobster Species Distribution Model"
+format: 
+  html:
+    toc: true
+    self-contained: true
+    date: "Updated on: `r Sys.Date()`"
+    author: Andrew Allyn
+    code-fold: true
+    code-wrap: true
+    # include-in-header: polyfill.min.js
+execute:
+  echo: true
+  message: false
+  warning: false
+editor: source
+runtime: shiny
+---
+
+# Aim
+The aim of this markdown document is to fit and project a spatio-temporal species distribution model for juvenile lobster under future climate change scenarios. 
+
+# Approach 
+## Model data
+To meet this aim, we leverage catch data from mutliple different fisheries-independent bottom trawl surveys, including the NOAA Northeast Fisheries Science Center spring/fall survey, the Department of Fisheries and Oceans Canada spring/summer suvey, the Maine-New Hampshire spring/fall survey and the Massachusetts spring/fall survey. After compiling the different datasets, we filtered and classified lobster to juvenile lobsters if the length of the individuals was less than 8.2 cm (see `here::here("Code/1_CleanandSubsetCatchData.R")` for details). At each unique tow location, we then multiplied the number of individuals by the weight at length (*where did this come from*) to get an overall measurement of juvenile lobster biomass at each tow location. This defined our response variable and the "distribution and abundance" component to the spatio-temporal SDM. To describe variation in juvenile lobster biomass, we then extracted environmental covariates at each unique tow location, using bottom depth data from NOAA Etopo1 maps and bottom temperature from GLORYs (see `here::here("Code/GLORYs_download.ipynb")` and `here::here("Code/GLORYs_processing.ipynb")` for GLORYs data download and processing information and `here::here("Code/Extract/Covariates")` for extraction details). Finally, we joined the environmental covariate dataset to the juvenile lobster biomass data and imputed 0 biomass values for any tows present in the environmental dataset that were not in the juvenile lobster biomass data as these represent "absences", which were not explictly recorded by any of the surveys. 
+
+## Model framework
+We are using the spatio-temporal, mixed effects, species distribution modeling framework in `sdmTMB` to describe, understand, and predict juvenile lobster biomass. One way of conceptualizing this modeling framework is as a traditional, "environment-only" species distribution model that includes additional bells and whistles. In particular, like the traditional, "environment-only" SDMs, we can include fixed effects for environmental covariates thought to influence a species distribution and abundance. Conceding there are likely a lot of other environmental or biological processes influencing speices occurrence patterns, these spatio-temporal models can also account for unmeasured, persistent spatial variation or ephemeral spatio-temporal variation, and allow for autoregressive structures on any of the time-varying components (for example, season-year intercepts, or the spatio-temporal variability) with random effects.
+
+There are a few additional components specific to our modeling framework. First, we include "survey" as a factor to account for systematic biases across the different bottom trawl surveys. This factor is essentially going to try to soak up variation among surveys that is purely related to differences in survey vessels/sampling techniques, as opposed to true variation in the biomass of juvenile lobster at a location. Second, rather than an annual time step, we are going to use a seasonal time step for our model, such that for a given year, we will be modeling the spring, summer and fall seasons. Moreover, we include a main effect and a spatially-varying random effect for sesason such that not only can a given season, on average, have higher/lower biomass across the domain, but this relationship can vary spatially. 
+
+Drawing from [`sdmTMB`'s model description guide](https://pbs-assess.github.io/sdmTMB/articles/model-description.html), the full, target model, can then be written as
+
+$$
+\begin{aligned}
+\mathbb{E}[y_{\boldsymbol{s},t}] &= \mu_{\boldsymbol{s},t},\\
+\mu_{\boldsymbol{s},t} &=
+f^{-1} \left( \boldsymbol{X}^{\mathrm{main}}_{\boldsymbol{s},t} \boldsymbol{\beta} +
+O_{\boldsymbol{s},t} +
+% \alpha_g +
+\boldsymbol{X}^{\mathrm{tvc}}_{\boldsymbol{s},t} \boldsymbol{\gamma_t} +
+\boldsymbol{X}^{\mathrm{svc}}_{\boldsymbol{s},t} \zeta_{\boldsymbol{s}} +
+\omega_{\boldsymbol{s}} +
+\epsilon_{\boldsymbol{s},t} \right),
+\end{aligned}
+$$
+
+where
+
+-   $y_{\boldsymbol{s},t}$ represents the juvenile biomass at point $\boldsymbol{s}$ and season-year $t$;
+-   $\mu$ represents the mean;
+-   $f$ represents a link function (e.g., log or logit) and $f^{-1}$ represents its inverse;
+-   $\boldsymbol{X}^{\mathrm{main}}$, $\boldsymbol{X}^{\mathrm{tvc}}$, and $\boldsymbol{X}^{\mathrm{svc}}$ represent design matrices (the superscript identifiers 'main' = main effects, 'tvc' = time varying coefficients, and 'svc' = spatially varying coefficients);
+-   $\boldsymbol{\beta}$ represents a vector of fixed-effect coefficients (i.e., depth and seasonal average bottom temperature);
+-   $O_{\boldsymbol{s},t}$ represents an offset: a covariate (usually log transformed) with a coefficient fixed at one;
+<!-- -   $\alpha_{g}$ represents random intercepts by group $g$, $\alpha_{g}\sim \mathrm{N}(0,\sigma^2_\alpha)$; -->
+-   $\gamma_{t}$ represents time-varying coefficients (a random walk), $\gamma_{t} \sim \mathrm{N}(\gamma_{t-1},\sigma^2_\gamma)$;
+-   $\zeta_{\boldsymbol{s}}$ represents the season spatially varying coefficient (a random field), $\zeta_{\boldsymbol{s}} \sim \mathrm{MVN}(\boldsymbol{0},\boldsymbol{\Sigma}_\zeta)$;
+-   $\omega_{\boldsymbol{s}}$ represents a spatial component (a random field), $\omega_{\boldsymbol{s}} \sim \mathrm{MVN}(\boldsymbol{0},\boldsymbol{\Sigma}_\omega)$; and
+-   $\epsilon_{\boldsymbol{s},t}$ represents a spatiotemporal component (a random field), $\epsilon_{\boldsymbol{s},t} \sim \mathrm{MVN}(\boldsymbol{0},\boldsymbol{\Sigma}_{\epsilon})$.
+
+In working towards this full, target, model, we fit a baseline model (without spatial variation or spatio-temporal variation), and then a spatial model (with spatial varation, but still without spatio-temporal variation).
+
+# Analysis 
+## Data set up
+We now step through our analysis process after bringing in some necessary libraries and generating some helpful functions to work with and visualize sdmTMB model output. 
+```{r}
+#| label: Libraries and preliminaries
+#| echo: false
+#| message: false
+#| warning: false
+#| include: false
+
+library(tidyverse)
+library(rnaturalearth)
+library(rnaturalearthdata)
+library(sdmTMB)
+library(sdmTMBextra)
+library(ggeffects)
+library(bslib)
+library(shiny)
+library(patchwork)
+
+
+# Configure bslib to work offline
+bslib::bs_theme_dependencies(theme = bs_theme())
+
+# Scaling/unscaling function to facilitate model convergence
+set.seed(13)
+x <- rnorm(100)
+
+scaled_x <- scale(x)
+unscaled_x <- as.numeric((scaled_x * attr(scaled_x, "scaled:scale")) + attr(scaled_x, "scaled:center"))
+# all.equal(x, unscaled_x)
+
+scaled<- function(x, center, scale){
+  (x - center) / scale
+}
+
+unscale <- function(scaled_x, center, scale) {
+  if (is.null(attr(scaled_x, "scaled:scale")) == F) {
+    # (scaled_x * sd) + m
+    (scaled_x * attr(scaled_x, "scaled:scale")) + attr(scaled_x, "scaled:center")
+  }
+  if (is.null(attr(scaled_x, "scaled:scale")) == T) {
+    (scaled_x * scale) + center
+  }
+}
+
+unscale_aja <- function(scaled_x, orig_mean, orig_sd) {
+  (scaled_x * orig_sd) + orig_mean
+}
+
+# Function to plot smooth effects
+plot_smooths<- function(mod_fit, n_preds = 100, y_lab = "Predicted Biomass", rescale_means = NULL, rescale_sds = NULL){
+  # Get smooth terms from the model
+  formula_terms <- as.character(mod_fit$smoothers$labels)  # Right-hand side of formula
+  
+  # Clean up to get just the variable names
+  smooth_terms <- gsub("\\)", "", gsub("s\\(", "", formula_terms))
+  
+  # Create prediction data frame for all smooth terms
+  all_preds <- lapply(smooth_terms, function(term) {
+    # Generate term string
+    term_string <- paste0(term, paste0(" [n=", n_preds, "]"))
+
+    # Pass to ggpredict
+    pred <- ggpredict(mod_fit, terms = term_string)
+
+    # Unscale for plotting?
+    pred$smooth_term <- term
+    if(!is.null(rescale_means) & !is.null(rescale_sds)){
+      pred$x_raw <- unscale_aja(pred$x, rescale_means[[gsub("_scaled", "", term)]], rescale_sds[[gsub("_scaled", "", term)]])
+    }
+    pred$smooth_term <- term
+    return(pred)
+  })
+  
+  # Combine all predictions
+  pred_data <- data.frame(bind_rows(all_preds))
+
+  # Create the plot
+  p <- ggplot() +
+    geom_ribbon(data = pred_data, aes(x = x_raw, ymin = conf.low, ymax = conf.high, fill = smooth_term), alpha = 0.1, color = NA) +
+    geom_line(data = pred_data, aes(x = x_raw, y = predicted, color = smooth_term), linewidth = 1) +
+    labs(
+      x = "Predictor value",
+      y = y_lab
+    ) +
+    theme(
+      text = element_text(size = 14),
+      legend.position = "bottom"
+    ) +
+    facet_wrap(~ gsub("_scaled", "", smooth_term), scales = "free_x") +
+    theme_bw()
+
+  return(p)
+}
+
+# Base map land info
+region <- ne_countries(scale = "medium", continent = "North America", returnclass = "sf")
+states <- ne_states(country = c("United States of America", "Canada"), returnclass = "sf")
+
+lat_lims <- c(35.2, 48)
+lon_lims<- c(-76, -56.2)
+```
+
+Next, we can load in the model dataset and do some quick prepping steps, including filtering to just have the juvenile observations, and then scaling our environmental covariates to facilitate model conergence. There is also an incredibly large biomass value (~2000 kg!) and for now, we are going to remove that as it falls so far outside the distribution of catches.
+```{r}
+#| label: Loading and prepping data
+#| echo: true
+#| message: false
+#| warning: false
+
+all_mod_data<- readRDS(here::here("Data/Derived/all_model_data.rds"))
+
+# Focus on just lobster, and during GLORYs time series
+year_min <- 1993
+year_max <- 2023
+
+red_mod_data <- all_mod_data |>
+  dplyr::filter(life_class == "juvenile") |>
+  dplyr::filter(between(year, year_min, year_max)) 
+
+# summary(red_mod_data)
+
+# Still some weird NA biomass values to figure out, dropping those for now
+mod_data<- red_mod_data |>
+  drop_na(total_biomass)
+# summary(mod_data)
+
+# What the heck is going on with that 2014 value?
+t<- mod_data[which.max(mod_data$total_biomass),]
+# plot(mod_data$total_biomass)
+
+# Doesn't seem like there is anyway that point is real.
+mod_data <- mod_data[-which.max(mod_data$total_biomass), ] |>
+  ungroup()
+# plot(mod_data$total_biomass)
+
+# Scale/center covariates
+# Get means and sds
+column_means <- colMeans(mod_data[, c("Depth", "BT_seasonal")], na.rm = TRUE)
+column_sds <- apply(mod_data[, c("Depth", "BT_seasonal")], 2, sd, na.rm = TRUE)
+
+# Scale the data
+mod_data <- mod_data |>
+  mutate(across(
+    c(Depth, BT_seasonal),
+    ~ (. - mean(., na.rm = TRUE)) / sd(., na.rm = TRUE),
+    .names = "{.col}_scaled"
+  ))
+```
+
+With the model prep complete, we then need to do a bit of additional coding to facilitate fitting the season-year time step model, and especially, fitting a main and spatially-varying coefficient for `season`.
+
+```{r}
+#| label: Season time step work
+#| echo: true
+#| message: false
+#| warning: false
+
+# Going to want to have a continuous time column
+all_years<- seq(from = min(mod_data$year), to = max(mod_data$year))
+seasons<- c("Spring", "Summer", "Fall")
+time_fac_levels<- paste(rep(all_years, each = length(unique(seasons))), seasons, sep = "_")
+time_ints<- as.numeric(factor(time_fac_levels, levels = time_fac_levels))
+
+mod_data <- mod_data |>
+  mutate(season = factor(season, levels = seasons),
+         year_season_fac = factor(paste(year, season, sep = "_"), levels = time_fac_levels),
+         year_season_int = as.numeric(year_season_fac)) %>%
+  arrange(year_season_int)
+
+# Now for the model matrix trickery
+mm_season <- model.matrix(~ 0 + factor(season), data = mod_data)
+# mm_year <- model.matrix(~ 0 + factor(est_year), data = dat) 
+
+mod_data <- mod_data |>
+  dplyr::select(!contains("factor")) |>
+  cbind(mm_season) |>
+  #   cbind(mm_year) |>
+  as_tibble()
+
+fa <- names(mod_data)[grepl("factor", names(mod_data))]
+fo <- paste0("`", paste(fa, collapse = "` + `"), "`")
+svc <- as.formula(paste("~", fo))
+```
+
+## sdmTMB mesh
+sdmTMB, and other common spatio-temporal modeling approaches, use a spatial mesh to facilitate estimating random spatial, and spatio-temporal effects, as Gaussian Markov Random Fields, approximated by Spatial Partial Differential Equations. Here, we create a mesh and note that we will likely want to return to evaluate alternative mesh structures. Owen Liu has some potentially useful and [helpful code](https://github.com/owenrliu/eDNA_eulachon/blob/63a1b4d21fa4ffbc629cbb0657bc032998565f17/scripts/eulachon_sdms.Rmd#L217) for doing something similar. 
+```{r}
+#| label: sdmTMB mesh
+#| echo: true
+#| message: false
+#| warning: false
+
+# Add long/lat column to model data 
+mod_data <- mod_data %>%
+  sdmTMB::add_utm_columns(ll_names = c("longitude", "latitude"), units = "km") 
+
+# Create sdmTMB mesh -- 
+sdmTMB_mesh <- sdmTMB::make_mesh(mod_data, xy_cols = c("longitude", "latitude"), type = "cutoff", cutoff = 0.5)
+```
+
+```{r}
+#| label: Plot sdmTMB mesh
+#| echo: false
+#| code-fold: false
+#| message: false
+#| warning: false
+plot(sdmTMB_mesh)
+```
+
+## sdmTMB fits
+With the data and mesh, we can now start fitting the models with calls to `sdmTMB`. For this we are going to fit three different models to represent the progressive influence of adding spatial and then spatio-temporal variation to a "baseline" model structure that includes fixed effects for environmental covariates, survey, and season, a random, spatially-varying effect for season, and finally an auto-regressive time-varying structure to the model intercepts, which will eventually facilitate predicting to future time steps.
+
+Importantly, to implement a model with a fixed effect and spatially-varying coefficient for season, we need to do some adjustments to the underlying mapping of parameters. Specifically, we pool variances across all the seasons, rather than estimate seasonally-specific spatially-varying coefficient variances.  
+
+We start with the "baseline" model.
+```{r}
+#| label: Baseline juvenile lobster SDM
+#| echo: TRUE
+#| warning: false
+
+# Mapping to pool variances across seasons
+n_seasons <- length(unique(mod_data$season)) 
+tau_Z_map <- factor(cbind(rep(1, n_seasons)))
+
+# Fit the model or load it
+if(!file.exists(here::here("Juve_Base.rds"))){
+
+  fit_base<- sdmTMB(
+    total_biomass ~ factor(season) + factor(survey) + s(Depth, k = 4) + s(BT_seasonal, k = 4),
+    control = sdmTMBcontrol(map = list(ln_tau_Z = tau_Z_map)),
+    data = mod_data,
+    spatial = "off",
+    # offset = dat_mod$swept, 
+    # anisotropy = TRUE, 
+    # share_range = TRUE,
+    spatiotemporal = "off",
+    spatial_varying = svc,
+    time = "year_season_int",
+    time_varying = ~ 0 + year_season_int,
+    time_varying_type = "ar1",
+    extra_time = time_ints,
+    mesh = sdmTMB_mesh,
+    family = tweedie(), 
+    silent = TRUE,
+    do_fit = FALSE
+  )
+
+  write_rds(fit_base, here::here("Juve_Base.rds"), compress = "gz")
+} else {
+  fit_base<- readRDS(here::here("Juve_Base.rds"))
+}
+```
+
+Next, we turn "on" the persistent, spatial variability component.
+
+```{r}
+#| label: Spatial juvenile lobster SDM
+#| echo: true
+#| warning: false
+
+# Fit the model or load it?
+if(!file.exists(here::here("Juve_Sp.rds"))){
+  fit_sp<- sdmTMB(
+    total_biomass ~ factor(season) + factor(survey) + s(Depth, k = 4) + s(BT_seasonal, k = 4),
+    control = sdmTMBcontrol(map = list(ln_tau_Z = tau_Z_map)),
+    data = mod_data,
+    spatial = "off",
+    # offset = dat_mod$swept, 
+    anisotropy = TRUE, 
+    # share_range = TRUE,
+    spatiotemporal = "off",
+    spatial_varying = svc,
+    time = "year_season_int",
+    time_varying = ~ 0 + year_season_int,
+    time_varying_type = "ar1",
+    extra_time = time_ints,
+    mesh = sdmTMB_mesh,
+    family = tweedie(), 
+    silent = TRUE,
+    do_fit = FALSE
+  )
+  write_rds(fit_sp, here::here("Juve_Sp.rds"), compress = "gz")
+} else {
+  fit_sp<- readRDS(here::here("Juve_Sp.rds"))
+}
+
+```
+
+Finally, the ephemeral spatio-temporal variation component with an AR1 auto-regressive structure to facilitate predicting this component to future time steps.
+
+```{r}
+#| label: Spatio-temporal juvenile lobster SDM
+#| echo: true
+#| warning: false
+
+# Fit the model or load it?
+if(!file.exists(here::here("Juve_SpST.rds"))){
+  fit_spst<- sdmTMB(
+    total_biomass ~ factor(season) + factor(survey) + s(Depth, k = 4) + s(BT_seasonal, k = 4),
+    control = sdmTMBcontrol(map = list(ln_tau_Z = tau_Z_map)),
+    data = mod_data,
+    spatial = "off",
+    # offset = dat_mod$swept, 
+    anisotropy = TRUE, 
+    share_range = TRUE,
+    spatiotemporal = "off",
+    spatial_varying = svc,
+    time = "year_season_int",
+    time_varying = ~ 0 + year_season_int,
+    time_varying_type = "ar1",
+    extra_time = time_ints,
+    mesh = sdmTMB_mesh,
+    family = tweedie(), 
+    silent = TRUE,
+    do_fit = FALSE
+  )
+  write_rds(fit_spst, here::here("Juve_SpST.rds"), compress = "gz")
+} else {
+  fit_spst<- readRDS(here::here("Juve_SpST.rds"))
+}
+
+```
+
+## sdmTMB fits evaluation and inferences
+With the three models fit, we can now evaluate each of them. Residual checks with spatio-temporal models are infamously difficult to interpret (see [here](https://pbs-assess.github.io/sdmTMB/articles/residual-checking.html) and [here](https://github.com/pbs-assess/sdmTMB/discussions/327) for more details and information). Here we start by looking at the q-q plots and fitted vs. predicted residuals.
+
+```{r, results='hide'}
+#| label: Residual checks
+#| echo: true
+#| warning: false
+
+# Make a tibble with fitted model as its own column so we can map different functions to the models
+all_fits<- list("Base" = fit_base, "Sp" = fit_sp, "SpST" = fit_spst)
+
+fits_df<- tibble("Name" = c("fit_base", "fit_sp", "fit_spst"), "Mod" = all_fits)
+
+# Now, DHARMa residuals
+get_DHARMa_nested<- function(fit, nsim_use = 100, type_use = "mle-mvn"){
+  out<- simulate(fit, nsim = nsim_use, type = type_use) |>
+    dharma_residuals(fit, plot = FALSE, return_DHARMa = TRUE)
+  return(out)
+}
+
+fits_df<- fits_df |>
+  mutate(DHARMa_resids = map(Mod, get_DHARMa_nested))
+
+# Saving plots
+plot_DHARMa_nested<- function(fit){
+  # Extract residuals and fitted values
+  residuals <- residuals(fit)
+  fitted_vals <- predict(fit)$est
+  
+  # Create diagnostic plots
+  p1 <- ggplot(data.frame(residuals = residuals), aes(sample = residuals)) +
+    stat_qq() +
+    stat_qq_line() +
+    theme_bw() +
+    ggtitle("Normal Q-Q Plot of Residuals")
+  
+  p2 <- ggplot(data.frame(fitted = fitted_vals, residuals = residuals), aes(x = fitted, y = residuals)) +
+    geom_point() +
+    geom_hline(yintercept = 0, linetype = "dashed", color = "red") +
+    theme_bw() +
+    ggtitle("Residuals vs. Fitted Values")
+    
+    # Arrange plots in a grid
+    out<- gridExtra::grid.arrange(p1, p2, ncol = 2)
+    return(out)
+}
+
+fits_df<- fits_df |>
+  mutate(DHARMa_plots = map(Mod, plot_DHARMa_nested))  
+```
+
+```{r}
+gridExtra::grid.arrange(fits_df$DHARMa_plots[[1]], fits_df$DHARMa_plots[[2]], fits_df$DHARMa_plots[[3]])
+```
+
+After the residual checks, we can then look at model fit to the data using AICc.
+<!-- knitr::kable( c("Tweedie"=AIC(mytinyVAST),"delta-lognormal"=AIC(mydelta2)), digits=3) -->
+
+
+<!-- 
+```{r, include = FALSE, eval = FALSE}
+# This was a failed attempt at trying to imbed a Shiny App within the quarto document
+source("juve_eval_app.R")
+``` -->
