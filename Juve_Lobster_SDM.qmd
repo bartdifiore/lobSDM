@@ -77,13 +77,11 @@ library(rnaturalearthdata)
 library(sdmTMB)
 library(sdmTMBextra)
 library(ggeffects)
-library(bslib)
 library(shiny)
 library(patchwork)
+library(forecast)
 
-
-# Configure bslib to work offline
-bslib::bs_theme_dependencies(theme = bs_theme())
+source(here::here("Code/sdmTMB_Validation_Functions.R"))
 
 # Scaling/unscaling function to facilitate model convergence
 set.seed(13)
@@ -172,7 +170,8 @@ Next, we can load in the model dataset and do some quick prepping steps, includi
 #| message: false
 #| warning: false
 
-all_mod_data<- readRDS(here::here("Data/Derived/all_model_data.rds"))
+all_mod_data<- readRDS(here::here("Data/Derived/all_model_data.rds")) |>
+  mutate(survey = factor(survey, levels = c("NEFSC", "DFO", "ME_NH", "MA")))
 
 # Focus on just lobster, and during GLORYs time series
 year_min <- 1993
@@ -247,6 +246,15 @@ fo <- paste0("`", paste(fa, collapse = "` + `"), "`")
 svc <- as.formula(paste("~", fo))
 ```
 
+Finally, let's make an edit so that we hold out some data to then validate the prediction skill of the model. Here, we leave out the most recent 5 years of observations across each of the 3 seasons, totaling 15 "model time steps."
+```{r}
+hold_out_ints<- as.numeric(factor(time_fac_levels, levels = time_fac_levels))[(length(time_ints)-15): length(time_ints)]
+hold_out_yr_seas<- time_fac_levels[hold_out_ints]
+
+mod_data_red<- mod_data |>
+  filter(!year_season_fac %in% hold_out_yr_seas)
+```
+
 ## sdmTMB mesh
 sdmTMB, and other common spatio-temporal modeling approaches, use a spatial mesh to facilitate estimating random spatial, and spatio-temporal effects, as Gaussian Markov Random Fields, approximated by Spatial Partial Differential Equations. Here, we create a mesh and note that we will likely want to return to evaluate alternative mesh structures. Owen Liu has some potentially useful and [helpful code](https://github.com/owenrliu/eDNA_eulachon/blob/63a1b4d21fa4ffbc629cbb0657bc032998565f17/scripts/eulachon_sdms.Rmd#L217) for doing something similar. 
 ```{r}
@@ -256,11 +264,11 @@ sdmTMB, and other common spatio-temporal modeling approaches, use a spatial mesh
 #| warning: false
 
 # Add long/lat column to model data 
-mod_data <- mod_data %>%
+mod_data_red <- mod_data_red %>%
   sdmTMB::add_utm_columns(ll_names = c("longitude", "latitude"), units = "km") 
 
 # Create sdmTMB mesh -- 
-sdmTMB_mesh <- sdmTMB::make_mesh(mod_data, xy_cols = c("longitude", "latitude"), type = "cutoff", cutoff = 0.5)
+sdmTMB_mesh <- sdmTMB::make_mesh(mod_data_red, xy_cols = c("longitude", "latitude"), type = "cutoff", cutoff = 0.5)
 ```
 
 ```{r}
@@ -284,7 +292,7 @@ We start with the "baseline" model.
 #| warning: false
 
 # Mapping to pool variances across seasons
-n_seasons <- length(unique(mod_data$season)) 
+n_seasons <- length(unique(mod_data_red$season)) 
 tau_Z_map <- factor(cbind(rep(1, n_seasons)))
 
 # Fit the model or load it
@@ -293,7 +301,7 @@ if(!file.exists(here::here("Juve_Base.rds"))){
   fit_base<- sdmTMB(
     total_biomass ~ factor(season) + factor(survey) + s(Depth, k = 4) + s(BT_seasonal, k = 4),
     control = sdmTMBcontrol(map = list(ln_tau_Z = tau_Z_map)),
-    data = mod_data,
+    data = mod_data_red,
     spatial = "off",
     # offset = dat_mod$swept, 
     # anisotropy = TRUE, 
@@ -307,7 +315,7 @@ if(!file.exists(here::here("Juve_Base.rds"))){
     mesh = sdmTMB_mesh,
     family = tweedie(), 
     silent = TRUE,
-    do_fit = FALSE
+    do_fit = TRUE
   )
 
   write_rds(fit_base, here::here("Juve_Base.rds"), compress = "gz")
@@ -328,8 +336,8 @@ if(!file.exists(here::here("Juve_Sp.rds"))){
   fit_sp<- sdmTMB(
     total_biomass ~ factor(season) + factor(survey) + s(Depth, k = 4) + s(BT_seasonal, k = 4),
     control = sdmTMBcontrol(map = list(ln_tau_Z = tau_Z_map)),
-    data = mod_data,
-    spatial = "off",
+    data = mod_data_red,
+    spatial = "on",
     # offset = dat_mod$swept, 
     anisotropy = TRUE, 
     # share_range = TRUE,
@@ -342,7 +350,7 @@ if(!file.exists(here::here("Juve_Sp.rds"))){
     mesh = sdmTMB_mesh,
     family = tweedie(), 
     silent = TRUE,
-    do_fit = FALSE
+    do_fit = TRUE
   )
   write_rds(fit_sp, here::here("Juve_Sp.rds"), compress = "gz")
 } else {
@@ -351,8 +359,24 @@ if(!file.exists(here::here("Juve_Sp.rds"))){
 
 ```
 
-Finally, the ephemeral spatio-temporal variation component with an AR1 auto-regressive structure to facilitate predicting this component to future time steps.
+Finally, the ephemeral spatio-temporal variation component with an AR1 auto-regressive structure to facilitate predicting this component to future time steps. Notably, when we implemented this model structure with an ar1 process on the spatio-temporal variation, we ran into gradient issues immediately. Fitting with a RW removed the error, though generated a warning about the Hessian matrix, signaling issues with resolving the uncertainty around fixed and random effects. It is still a bit unclear to me why this is happening, other than there is something going on with time_varying for both the intercepts and the spatio-temporal terms?
 
+While trouble shooting that, one option might be looking for ways of simplifying the `time_varying` component of the model depending on the importance of that AR1 process?
+```{r}
+# Extract AR1 coefficient for intercepts
+fit_sp$sd_report
+pl <- as.list(fit_sp$sd_report, "Estimate")
+pls <- as.list(fit_sp$sd_report, "Std. Error")
+
+rho_est <- pl$rho_time_unscaled[1,1]
+rho_se <- pls$rho_time_unscaled[1,1]
+
+bound <- function(x) 2 * plogis(x) - 1
+
+c(round(bound(rho_est - 1.96 * rho_se), 2), round(bound(rho_est), 2), round(bound(rho_est + 1.96 * rho_se), 2))
+```
+
+*I think* that is lending to support to modeling the intercepts as IID (rather than a constant or fixed effect, which would then somewhat limit our capacity to make forecasts/projections?) I gave that a shot and it works, also seemingly generating a better model (AIC 52637 vs 54505 baseline model and then log likelihood of -26297 vs. -27236 baseline model). I then looked at the values and estimates and they are incredibly small values with virtually no variance. With that additional information, thinking we might be able to drop the "year" component entirely from the model.
 ```{r}
 #| label: Spatio-temporal juvenile lobster SDM
 #| echo: true
@@ -360,24 +384,27 @@ Finally, the ephemeral spatio-temporal variation component with an AR1 auto-regr
 
 # Fit the model or load it?
 if(!file.exists(here::here("Juve_SpST.rds"))){
+  mod_data_red<- mod_data_red |>
+    mutate(year_fac = factor(year))
   fit_spst<- sdmTMB(
     total_biomass ~ factor(season) + factor(survey) + s(Depth, k = 4) + s(BT_seasonal, k = 4),
     control = sdmTMBcontrol(map = list(ln_tau_Z = tau_Z_map)),
-    data = mod_data,
-    spatial = "off",
+    data = mod_data_red,
+    spatial = "on",
     # offset = dat_mod$swept, 
     anisotropy = TRUE, 
-    share_range = TRUE,
-    spatiotemporal = "off",
+    share_range = FALSE,
+    spatiotemporal = "ar1",
     spatial_varying = svc,
     time = "year_season_int",
-    time_varying = ~ 0 + year_season_int,
-    time_varying_type = "ar1",
-    extra_time = time_ints,
+    # time_varying = ~ 0 + year_season_int,
+    time_varying = NULL,
+    # time_varying_type = "ar1",
+    extra_time = time_ints, # This doesn't work with full time_ints and ar1, it will work but with convergence issues for full time_ints and RW. With just fit time_ints and ar1, also NA issue.
     mesh = sdmTMB_mesh,
     family = tweedie(), 
     silent = TRUE,
-    do_fit = FALSE
+    do_fit = TRUE
   )
   write_rds(fit_spst, here::here("Juve_SpST.rds"), compress = "gz")
 } else {
@@ -410,7 +437,7 @@ fits_df<- fits_df |>
   mutate(DHARMa_resids = map(Mod, get_DHARMa_nested))
 
 # Saving plots
-plot_DHARMa_nested<- function(fit){
+plot_DHARMa_nested<- function(fit, name){
   # Extract residuals and fitted values
   residuals <- residuals(fit)
   fitted_vals <- predict(fit)$est
@@ -429,24 +456,76 @@ plot_DHARMa_nested<- function(fit){
     ggtitle("Residuals vs. Fitted Values")
     
     # Arrange plots in a grid
-    out<- gridExtra::grid.arrange(p1, p2, ncol = 2)
+    out<- p1 + p2 + plot_layout(ncol = 2) + plot_annotation(title = name)
     return(out)
 }
 
 fits_df<- fits_df |>
-  mutate(DHARMa_plots = map(Mod, plot_DHARMa_nested))  
+  mutate(DHARMa_plots = map2(Mod, Name, plot_DHARMa_nested))  
+all_diag<- fits_df$DHARMa_plots[[1]] / fits_df$DHARMa_plots[[2]] / fits_df$DHARMa_plots[[3]] 
+ggsave("~/GitHub/lobSDM/Figures/JuveLobDiagnostics.png", all_diag)
+
 ```
 
 ```{r}
-gridExtra::grid.arrange(fits_df$DHARMa_plots[[1]], fits_df$DHARMa_plots[[2]], fits_df$DHARMa_plots[[3]])
+all_diag
 ```
 
-After the residual checks, we can then look at model fit to the data using AICc.
-<!-- knitr::kable( c("Tweedie"=AIC(mytinyVAST),"delta-lognormal"=AIC(mydelta2)), digits=3) -->
+After the residual checks, we can then look at model fit to the data using AIC as one measure of the model fit to the data.
+```{r}
+knitr::kable(data.frame("Model" = c("Baseline", "Baseline + Spatial Variation", "Baseline + Spatial + Spatio-temporal Variation"), "AIC" = c(AIC(fits_df$Mod[[1]]), AIC(fits_df$Mod[[2]]), AIC(fits_df$Mod[[3]])), "Log Likelihood" = c(logLik(fits_df$Mod[[1]]), logLik(fits_df$Mod[[2]]), logLik(fits_df$Mod[[3]]))), digits = 3)
+```
 
+The model evaluation statistics capture how well the model fit the data it was trained on. This is certainly an important piece of information, it is just one piece of the puzzle and we can take an addtional step to validate the model, which measures the model's capcity to predict to data it has not seen. Given our interest in using the model to make forecasts or projections, we held out the most recent 5 years of data during the model fitting process. We can now make predictions to those hold-out points and then calculate any number of prediction skill statistics. First, we generate the predictions. 
 
-<!-- 
-```{r, include = FALSE, eval = FALSE}
-# This was a failed attempt at trying to imbed a Shiny App within the quarto document
-source("juve_eval_app.R")
-``` -->
+```{r}
+#| label: Model validation
+#| echo: true
+#| warning: false
+
+# Get the prediction data frame
+pred_data_use<- mod_data |>
+  filter(year_season_int %in% hold_out_ints)
+
+pred_sdmTMB_nested<- function(fit, pred_data = pred_data_use){
+  pred_out<- predict(fit, newdata = pred_data, type = "response")
+  return(pred_out)
+}
+
+fits_df<- fits_df |>
+  mutate(Preds = map(Mod, pred_sdmTMB_nested))
+```
+
+Next, we can calculate a variey of prediction statistics to validate the model skill. To start, we will show a table with two different measures of prediction skill: the Pearson Correlation Coefficient (CorrCeff) and the Root Mean Squared Error (RMSE). The CorrCoeff provides insights about whether model predictions and observations follow similar patterns, though these are relative and do not necessarily represent the accuracy of the model predictions. For that component of model skill, we use RMSE, which does represent the difference on the response scale between model predictions and observations. 
+```{r}
+#| label: Model validation table
+#| echo: true
+#| warning: false
+
+pred_table<- fits_df |>
+  mutate(Corr_Coeff = pmap_dbl(list(df = Preds, obs_col = "total_biomass", mod_col = "est"), pearson_corr_coeff_func),
+  RMSE = pmap_dbl(list(df = Preds, obs_col = "total_biomass", mod_col = "est"), rmse_func)) |>
+  dplyr::select(Name, Corr_Coeff, RMSE)
+
+knitr::kable(pred_table, digits = 3)
+```
+
+Along side the prediction table, we can also visualize multiple aspects of prediction skill using a Taylor Diagram. The Taylor diagram provides a succinct picture of a model’s predictive ability. For each Taylor diagram, there is a reference point (shown by the gold-star) at [1,0]. This point indicates a model with perfect correlation between observations and predictions, no error, and the correct level of spatial variability. The relative strength of different models for different species is assessed by where the species-model point falls on the Taylor diagram, where correlation between observations and model predictions increases moving along the correlation coefficient arcs, reaching perfect correlation at the horizontal line with y = 0, model root mean square error decreases proportionally with the radial distance of each point to the reference point at [1,0], and agreement between observed variability and predicted variability increases with radial distances from the origin [0,0].
+
+```{r}
+#| label: Calculate and plot Taylor Diagram
+#| echo: true
+#| warning: false
+#| fig-width: 10
+#| fig-height: 8
+
+# Data prep, need one big data frame with a "group" column for each mode
+td_dat<- fits_df |>
+  dplyr::select(Name, Preds) |>
+  unnest(cols = c(Preds)) |>
+  mutate(Model = factor(Name, levels = c("fit_base", "fit_sp", "fit_spst"), labels = c("Baseline", "Baseline + Spatial Variation", "Baseline + Spatial + Spatio-temporal Variation")))
+
+# Make the plot
+td_plot<- taylor_diagram_func(dat = td_dat, obs = "total_biomass", mod = "est", group = "Model", out.file = "~/GitHub/lobSDM/Figures/Juve_Model_TD.png", grad.corr.lines = c(0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1), pcex = 1, cex.axis = 1, normalize = TRUE, mar = c(5, 4, 6, 6), sd.r = 1, fill.cols = c('#1b9e77','#d95f02','#7570b3'), color.cols = rep("black", 3), shapes = c(21, 22, 24), alpha = 0.5, example = FALSE)
+td_plot
+```
