@@ -219,3 +219,7 @@ cython_debug/
 .DS_Store
 Data/.DS_Store
 Juve_SpST.rds
+Juve_Sp_YrSeas.rds
+Juve_Sp_YrSeasAR1.rds
+Juve_YrSeasFac.rds
+Juve_YrSeasFix.rds
