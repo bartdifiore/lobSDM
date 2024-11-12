@@ -1,3 +1,8 @@
+# Stuff that we had added 
+
+Data/Derived/model_fit*
+
+
 # History files
 .Rhistory
 .Rapp.history
