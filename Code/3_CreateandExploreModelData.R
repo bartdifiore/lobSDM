@@ -31,11 +31,13 @@ str(catch_data)
 lob_df_bio <- catch_data |>
   mutate(total_weight_at_length = number_at_length * weight_at_length) |>
   group_by(scientific_name, trawl_id, longitude, latitude, season, year, survey, date, life_class) |>
-  summarize("total_biomass" = sum(total_weight_at_length))
+  summarize("total_biomass" = sum(total_weight_at_length)) |>
+  ungroup()
 summary(lob_df_bio)
 
 env_data <- readRDS(here::here("Data/Derived/all_tows_all_covs.rds"))
 str(env_data)
+env_tows<- unique(env_data$ID)
 
 all_mod_data_juvenile <- lob_df_bio |>
   filter(life_class == "juvenile") |>
@@ -88,10 +90,6 @@ summary(all_mod_data)
 
 write_rds(all_mod_data, "Data/Derived/all_model_data_predators.rds", compress = "gz")
 
-
-
-
-
 #----------------------------------
 ## Pre-model data exploration
 #----------------------------------
@@ -105,6 +103,9 @@ red_mod_data <- all_mod_data |>
 summary(red_mod_data)
 
 # Question for Bart -- What is going on with the NAs for weight at length? This seems to then naturally chuck the nA for total biomass?
+t<- is.na(catch_data$weight_at_length)
+t2<- catch_data[t,]
+View(t2)
 na_wt_len <- catch_data |>
     filter(is.na(weight_at_length))
 table(na_wt_len$year, na_wt_len$survey, na_wt_len$scientific_name)

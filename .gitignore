@@ -1,7 +1,7 @@
-# Stuff that we had added 
+# Stuff we add here
 
+.DS_Store
 Data/Derived/model_fit*
-
 
 # History files
 .Rhistory
@@ -218,3 +218,5 @@ cython_debug/
 #  option (not recommended) you can uncomment the following to ignore the entire idea folder.
 #.idea/
 .DS_Store
+Data/.DS_Store
+Juve_SpST.rds
