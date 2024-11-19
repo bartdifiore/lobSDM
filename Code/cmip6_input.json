@@ -1,0 +1,105 @@
+{
+    "metadata_csv": "",
+    "out_dir": "/Users/aallyn/Library/CloudStorage/Box-Box/RES_Data/CMIP6/SSP5_85/RawTmpFiles/",
+    "experiments": {
+        "historical": [
+            1850,
+            2014
+        ]
+    },
+    "quick_map": true,
+    "variables": {
+        "tos": "Omon",
+        "thetao": "Omon"    
+    },
+    "target_grid": [1,1],
+    "regrid_method": "bilinear",
+    "download_all_models": false,
+    "download_all_members": false,
+    "dataset": {
+        "UKESM1-0-LL": {
+            "source_id": "UKESM1-0-LL",
+            "ens_members": ["r10i1p1f2"]
+        },
+        "NorESM2-MM": {
+            "source_id": "NorESM2-MM",
+            "ens_members": ["r1i1p1f1"]
+        },
+        "NorESM2-LM": {
+            "source_id": "NorESM2-LM",
+            "ens_members": ["r1i1p1f1"]
+        },
+        "NESM3": {
+            "source_id": "NESM3",
+            "ens_members": ["r1i1p1f1"]
+        },
+        "MIROC6": {
+            "source_id": "MIROC6",
+            "ens_members": ["r10i1p1f1"]
+        },
+        "MIROC-ES2L": {
+            "source_id": "MIROC-ES2L",
+            "ens_members": ["r10i1p1f2"]
+        },
+        "IPSL-CM6A-LR": {
+            "source_id": "IPSL-CM6A-LR",
+            "ens_members": ["r10i1p1f1"]
+        },
+        "HadGEM3-GC31-LL": {
+            "source_id": "HadGEM3-GC31-LL",
+            "ens_members": ["r1i1p1f3"]
+        },
+        "FIO-ESM-2-0": {
+            "source_id": "FIO-ESM-2-0",
+            "ens_members": ["r1i1p1f1"]
+        },
+        "FGOALS-g3": {
+            "source_id": "FGOALS-g3",
+            "ens_members": ["r1i1p1f1"]
+        },
+        "FGOALS-f3-L": {
+            "source_id": "FGOALS-f3-L",
+            "ens_members": ["r1i1p1f1"]
+        },
+        "EX-Earth3-Veg-LR": {
+            "source_id": "EX-Earth3-Veg-LR",
+            "ens_members": ["r1i1p1f1"]
+        },
+        "FC-Earth3-Veg": {
+            "source_id": "FC-Earth3-Veg",
+            "ens_members": ["r12i1p1f1"]
+        },
+        "CanESM5-CanOE": {
+            "source_id": "CanESM5-CanOE",
+            "ens_members": ["r1i1p2f1"]
+        },
+        "CanESM5": {
+            "source_id": "CanESM5",
+            "ens_members": ["r10i1p1f1"]
+        },
+        "CNRM-ESM2-1": {
+            "source_id": "CNRM-ESM2-1",
+            "ens_members": ["r10i1p1f2"]
+        },
+        "CNRM-CM6-1": {
+            "source_id": "CNRM-CM6-1",
+            "ens_members": ["r10i1p1f2"]
+        },
+        "CMCC-CM2-SR5": {
+            "source_id": "CMCC-CM2-SR5",
+            "ens_members": ["r1i1p1f1"]
+        },
+        "CIESM": {
+            "source_id": "CIESM",
+            "ens_members": ["r1i1p1f1"]
+        },
+        "CESM2-WACCM": {
+            "source_id": "CESM2-WACCM",
+            "ens_members": ["r1i1p1f1"]
+        },
+        "CESM2": {
+            "source_id": "CESM2",
+            "ens_members": ["r10i1p1f1"]
+        }
+    }
+}

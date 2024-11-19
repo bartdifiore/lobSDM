@@ -426,7 +426,7 @@ Not exactly the most helpful, seems to show almost a regime-like shift and then 
 #| warning: false
 
 # Fit the model or load it?
-if(!file.exists(here::here("Juve_Sp_YrSeasAR1.rds")) | !file.exists(here::here("Juve_Sp_YrSeasAR1.rds"))){
+if(!file.exists(here::here("Juve_Sp_YrSeasAR1.rds")) | !file.exists(here::here("Juve_Sp_YrSeas.rds"))){
   fit_sp_yrseasar1<- sdmTMB(
     total_biomass ~ factor(season) + factor(survey) + s(Depth, k = 4) + s(BT_seasonal, k = 4),
     control = sdmTMBcontrol(map = list(ln_tau_Z = tau_Z_map)),
@@ -633,3 +633,9 @@ td_dat<- fits_df |>
 td_plot<- taylor_diagram_func(dat = td_dat, obs = "total_biomass", mod = "est", group = "Model", out.file = "~/GitHub/lobSDM/Figures/Juve_Model_TD.png", grad.corr.lines = c(0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1), pcex = 1, cex.axis = 1, normalize = TRUE, mar = c(5, 4, 6, 6), sd.r = 1, fill.cols = c('#1b9e77','#d95f02','#7570b3'), color.cols = rep("black", 3), shapes = c(21, 22, 24), alpha = 0.5, example = FALSE)
 td_plot
 ```
+
+## sdmTMB projections
+To do:
+- Bias correct the CMIP6 data to the glorys information
+- Make projections
+- 
