@@ -295,36 +295,130 @@ We start with the "baseline" model.
 n_seasons <- length(unique(mod_data_red$season)) 
 tau_Z_map <- factor(cbind(rep(1, n_seasons)))
 
-# Fit the model or load it
-if(!file.exists(here::here("Juve_Base.rds"))){
+# Fit the model
+fit_base<- sdmTMB(
+  total_biomass ~ factor(season) + factor(survey) + s(Depth, k = 4) + s(BT_seasonal, k = 4),
+  control = sdmTMBcontrol(map = list(ln_tau_Z = tau_Z_map)),
+  data = mod_data_red,
+  spatial = "off",
+  # offset = dat_mod$swept,
+  # anisotropy = TRUE,
+  # share_range = TRUE,
+  spatiotemporal = "off",
+  spatial_varying = svc,
+  time = "year_season_int",
+  time_varying = ~ 0 + year_season_int,
+  time_varying_type = "ar1",
+  extra_time = time_ints,
+  mesh = sdmTMB_mesh,
+  family = tweedie(),
+  silent = TRUE,
+  do_fit = TRUE
+)
+```
 
-  fit_base<- sdmTMB(
-    total_biomass ~ factor(season) + factor(survey) + s(Depth, k = 4) + s(BT_seasonal, k = 4),
+Before we get too far ahead of ourselves, lets inspect this inital baseline model fit a bit as we are going to be building in complexity that is likely to generate some convergence issues and it could be helpful to do some simplifying here. The one "complex" piece here that could be adjusted without compromising our model objectives is probably the time-varying intercepts, estimated as a AR1 process. While this is a nice piece to facilitate forecasting to future years, we will have dynamic environmental variables as well as the spatio-temporal variation component, which both will be "varying" at each time step and also support model prediction to unsampled years. Given that, we can explore this parameter.
+
+```{r}
+#| label: Baseline juvenile lobster SDM tuning
+#| echo: TRUE
+#| warning: false
+
+# First, quick look at the values
+summary(fit_base)
+
+# Extract AR1 coefficient for intercepts
+fit_base$sd_report
+pl <- as.list(fit_base$sd_report, "Estimate")
+pls <- as.list(fit_base$sd_report, "Std. Error")
+
+rho_est <- pl$rho_time_unscaled[1,1]
+rho_se <- pls$rho_time_unscaled[1,1]
+
+bound <- function(x) 2 * plogis(x) - 1
+
+c(round(bound(rho_est - 1.96 * rho_se), 2), round(bound(rho_est), 2), round(bound(rho_est + 1.96 * rho_se), 2))
+```
+
+The combination of the SE overlapping 0 and then the relatively low overall parameter estimate (0.05), suggests this isn't a very strong AR1 process. In particular, as the rho parameter goes to 0, we approach a white noise/IID process. We then have a couple of different options. One option would be to fit this time_varying parameter as IID by placing it in the formula structure (`total_biomass ~ factor(season) + factor(survey) + s(Depth, k = 4) + s(BT_seasonal, k = 4) + (1|year_season_int)`). I *think* this is potentially going to create some issues when we go to validate the model prediction skill using the standard `predict` function, though think we should be able to get around that with (maybe using some of the projection methods?)
+
+We can give it a shot and at least double check the model generates at least as good, or ideally better, fit to the training data.
+
+```{r}
+#| label: Baseline juvenile lobster SDM refit
+#| echo: TRUE
+#| warning: false
+
+mod_data_red<- mod_data_red |>
+    mutate(year_seas_fac = factor(year_season_int))
+
+# Fit the model
+if(!file.exists(here::here("Juve_YrSeasFac.rds")) | !file.exists(here::here("Juve_YrSeasFix.rds"))) {
+  fit_base_yrseasfac <- sdmTMB(
+    total_biomass ~ factor(season) + factor(survey) + s(Depth, k = 4) + s(BT_seasonal, k = 4) + (1|year_seas_fac),
     control = sdmTMBcontrol(map = list(ln_tau_Z = tau_Z_map)),
     data = mod_data_red,
     spatial = "off",
-    # offset = dat_mod$swept, 
-    # anisotropy = TRUE, 
+    # offset = dat_mod$swept,
+    # anisotropy = TRUE,
     # share_range = TRUE,
     spatiotemporal = "off",
     spatial_varying = svc,
     time = "year_season_int",
-    time_varying = ~ 0 + year_season_int,
-    time_varying_type = "ar1",
+    # time_varying = ~ 0 + year_season_int,
+    time_varying = NULL,
+    # time_varying_type = "ar1",
     extra_time = time_ints,
     mesh = sdmTMB_mesh,
-    family = tweedie(), 
+    family = tweedie(),
     silent = TRUE,
     do_fit = TRUE
   )
 
-  write_rds(fit_base, here::here("Juve_Base.rds"), compress = "gz")
+  fit_base_yrseasfix <- sdmTMB(
+    total_biomass ~ factor(season) + factor(survey) + s(Depth, k = 4) + s(BT_seasonal, k = 4),
+    control = sdmTMBcontrol(map = list(ln_tau_Z = tau_Z_map)),
+    data = mod_data_red,
+    spatial = "off",
+    # offset = dat_mod$swept,
+    # anisotropy = TRUE,
+    # share_range = TRUE,
+    spatiotemporal = "off",
+    spatial_varying = svc,
+    time = "year_season_int",
+    # time_varying = ~ 0 + year_season_int,
+    time_varying = NULL,
+    # time_varying_type = "ar1",
+    extra_time = time_ints,
+    mesh = sdmTMB_mesh,
+    family = tweedie(),
+    silent = TRUE,
+    do_fit = TRUE
+  )
+  write_rds(fit_base_yrseasfac, here::here("Juve_YrSeasFac.rds"), compress = "gz")
+  write_rds(fit_base_yrseasfix, here::here("Juve_YrSeasFix.rds"), compress = "gz")
 } else {
-  fit_base<- readRDS(here::here("Juve_Base.rds"))
+  fit_base_yrseasfac<- readRDS(here::here("Juve_YrSeasFac.rds"))
+  fit_base_yrseasfix<- readRDS(here::here("Juve_YrSeasFix.rds"))
 }
+
+# Some quick model comparisons, being cautious with just the AIC given the change in effects structure
+knitr::kable(data.frame("Model" = c("Baseline", "Baseline - IID Season-Year", "Baseline - Constant Season-Year"), "AIC" = c(AIC(fit_base), AIC(fit_base_yrseasfac), AIC(fit_base_yrseasfix)), "Log Likelihood" = c(logLik(fit_base), logLik(fit_base_yrseasfac), logLik(fit_base_yrseasfix))), digits = 3)
 ```
 
-Next, we turn "on" the persistent, spatial variability component.
+A bit of the fork in the road here. There's isn't a reason based on model fit to the data to really choose using year as a constant or as IID as AICs are higher and log likelihoods are more negative. AIC is a bit suspect given the varying model structures and they aren't truly "nested" models. What do we see with the parameters for the IID? We know there wasn't much support for the AR1 process. Is there a lot of variability among time steps absorbed by the random effect to warrant its inclusion?
+```{r}
+yr_seas_effects<- tidy(fit_base_yrseasfac, effects = "ran_vals", conf.int = TRUE) |>
+  mutate(Plot_Time = as.numeric(factor(term)))
+
+ggplot(data = yr_seas_effects, aes(x = Plot_Time, y = estimate, ymin = conf.low, ymax = conf.high)) + 
+  geom_point() +
+  geom_errorbar() +
+  stat_smooth() +
+  theme_bw()
+```
+
+Not exactly the most helpful, seems to show almost a regime-like shift and then decline towards the later part of the the time series. Given all of this collective information, I think it will make sense to maybe let any of this variability be soaked up into the eventual spatial or spatio-temporal model terms by not including the "year_season" term in either the random effect or the time varying component. Will do another check on things after adding in the spatial variability.
 
 ```{r}
 #| label: Spatial juvenile lobster SDM
@@ -332,8 +426,8 @@ Next, we turn "on" the persistent, spatial variability component.
 #| warning: false
 
 # Fit the model or load it?
-if(!file.exists(here::here("Juve_Sp.rds"))){
-  fit_sp<- sdmTMB(
+if(!file.exists(here::here("Juve_Sp_YrSeasAR1.rds")) | !file.exists(here::here("Juve_Sp_YrSeas.rds"))){
+  fit_sp_yrseasar1<- sdmTMB(
     total_biomass ~ factor(season) + factor(survey) + s(Depth, k = 4) + s(BT_seasonal, k = 4),
     control = sdmTMBcontrol(map = list(ln_tau_Z = tau_Z_map)),
     data = mod_data_red,
@@ -352,31 +446,44 @@ if(!file.exists(here::here("Juve_Sp.rds"))){
     silent = TRUE,
     do_fit = TRUE
   )
-  write_rds(fit_sp, here::here("Juve_Sp.rds"), compress = "gz")
+
+   fit_sp_yrseas<- sdmTMB(
+    total_biomass ~ factor(season) + factor(survey) + s(Depth, k = 4) + s(BT_seasonal, k = 4),
+    control = sdmTMBcontrol(map = list(ln_tau_Z = tau_Z_map)),
+    data = mod_data_red,
+    spatial = "on",
+    # offset = dat_mod$swept, 
+    anisotropy = TRUE, 
+    # share_range = TRUE,
+    spatiotemporal = "off",
+    spatial_varying = svc,
+    time = "year_season_int",
+    # time_varying = ~ 0 + year_season_int,
+    # time_varying_type = "ar1",
+    extra_time = time_ints,
+    mesh = sdmTMB_mesh,
+    family = tweedie(), 
+    silent = TRUE,
+    do_fit = TRUE
+  )
+  write_rds(fit_sp_yrseas, here::here("Juve_Sp_YrSeasAR1.rds"), compress = "gz")
+  write_rds(fit_sp_yrseas, here::here("Juve_Sp_YrSeas.rds"), compress = "gz")
 } else {
-  fit_sp<- readRDS(here::here("Juve_Sp.rds"))
+  fit_sp_yrseasar1<- readRDS(here::here("Juve_Sp_YrSeasAR1.rds"))
+  fit_sp_yrseas<- readRDS(here::here("Juve_Sp_YrSeas.rds"))
 }
-
 ```
 
-Finally, the ephemeral spatio-temporal variation component with an AR1 auto-regressive structure to facilitate predicting this component to future time steps. Notably, when we implemented this model structure with an ar1 process on the spatio-temporal variation, we ran into gradient issues immediately. Fitting with a RW removed the error, though generated a warning about the Hessian matrix, signaling issues with resolving the uncertainty around fixed and random effects. It is still a bit unclear to me why this is happening, other than there is something going on with time_varying for both the intercepts and the spatio-temporal terms?
-
-While trouble shooting that, one option might be looking for ways of simplifying the `time_varying` component of the model depending on the importance of that AR1 process?
+How do things look now in terms of AIC and log likelihood?
 ```{r}
-# Extract AR1 coefficient for intercepts
-fit_sp$sd_report
-pl <- as.list(fit_sp$sd_report, "Estimate")
-pls <- as.list(fit_sp$sd_report, "Std. Error")
-
-rho_est <- pl$rho_time_unscaled[1,1]
-rho_se <- pls$rho_time_unscaled[1,1]
-
-bound <- function(x) 2 * plogis(x) - 1
-
-c(round(bound(rho_est - 1.96 * rho_se), 2), round(bound(rho_est), 2), round(bound(rho_est + 1.96 * rho_se), 2))
+ # Quick comparison
+  knitr::kable(data.frame("Model" = c("Year_Season AR1", "Year_Season_Fixed"), "AIC" = c(AIC(fit_sp_yrseas), AIC(fit_sp_yrseasar1)), "Log Likelihood" = c(logLik(fit_sp_yrseas), logLik(fit_sp_yrseasar1))), digits = 3)
 ```
 
-*I think* that is lending to support to modeling the intercepts as IID (rather than a constant or fixed effect, which would then somewhat limit our capacity to make forecasts/projections?) I gave that a shot and it works, also seemingly generating a better model (AIC 52637 vs 54505 baseline model and then log likelihood of -26297 vs. -27236 baseline model). I then looked at the values and estimates and they are incredibly small values with virtually no variance. With that additional information, thinking we might be able to drop the "year" component entirely from the model.
+Alright, that looks better and I think we can then go forward with adding in the spatio-temporal piece and keeping year_season as fixed. For what it is worth, when we implemented this model structure with an AR1 process on the spatio-temporal variation, we ran into gradient issues immediately. Fitting with a RW removed the error, though generated a warning about the Hessian matrix, signaling issues with resolving the uncertainty around fixed and random effects. It is still a bit unclear to me why this is happening, other than there is something going on with time_varying for both the intercepts and the spatio-temporal terms?
+
+While trouble shooting that, proceeding with the constant "year_season" spatio-temporal model. 
+
 ```{r}
 #| label: Spatio-temporal juvenile lobster SDM
 #| echo: true
@@ -384,8 +491,6 @@ c(round(bound(rho_est - 1.96 * rho_se), 2), round(bound(rho_est), 2), round(boun
 
 # Fit the model or load it?
 if(!file.exists(here::here("Juve_SpST.rds"))){
-  mod_data_red<- mod_data_red |>
-    mutate(year_fac = factor(year))
   fit_spst<- sdmTMB(
     total_biomass ~ factor(season) + factor(survey) + s(Depth, k = 4) + s(BT_seasonal, k = 4),
     control = sdmTMBcontrol(map = list(ln_tau_Z = tau_Z_map)),
@@ -410,7 +515,6 @@ if(!file.exists(here::here("Juve_SpST.rds"))){
 } else {
   fit_spst<- readRDS(here::here("Juve_SpST.rds"))
 }
-
 ```
 
 ## sdmTMB fits evaluation and inferences
@@ -422,7 +526,7 @@ With the three models fit, we can now evaluate each of them. Residual checks wit
 #| warning: false
 
 # Make a tibble with fitted model as its own column so we can map different functions to the models
-all_fits<- list("Base" = fit_base, "Sp" = fit_sp, "SpST" = fit_spst)
+all_fits<- list("Base" = fit_base_yrseasfix, "Sp" = fit_sp_yrseas, "SpST" = fit_spst)
 
 fits_df<- tibble("Name" = c("fit_base", "fit_sp", "fit_spst"), "Mod" = all_fits)
 
@@ -529,3 +633,9 @@ td_dat<- fits_df |>
 td_plot<- taylor_diagram_func(dat = td_dat, obs = "total_biomass", mod = "est", group = "Model", out.file = "~/GitHub/lobSDM/Figures/Juve_Model_TD.png", grad.corr.lines = c(0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1), pcex = 1, cex.axis = 1, normalize = TRUE, mar = c(5, 4, 6, 6), sd.r = 1, fill.cols = c('#1b9e77','#d95f02','#7570b3'), color.cols = rep("black", 3), shapes = c(21, 22, 24), alpha = 0.5, example = FALSE)
 td_plot
 ```
+
+## sdmTMB projections
+To do:
+- Bias correct the CMIP6 data to the glorys information
+- Make projections
+- 
