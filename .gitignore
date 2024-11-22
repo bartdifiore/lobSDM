@@ -224,3 +224,7 @@ Juve_Sp_YrSeas.rds
 Juve_Sp_YrSeasAR1.rds
 Juve_YrSeasFac.rds
 Juve_YrSeasFix.rds
+
+# pixi environments
+.pixi
+*.egg-info
