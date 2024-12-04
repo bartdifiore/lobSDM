@@ -1,0 +1,28 @@
+[project]
+authors = ["aallyn <andrew.allyn@gmail.com>"]
+channels = ["conda-forge"]
+description = "Add a short description here"
+name = "lobSDM"
+platforms = ["osx-64"]
+version = "0.1.0"
+
+[tasks]
+
+[dependencies]
+esmpy = "<8.4"
+esmf = "<8.4"
+xesmf = ">=0.8.8,<0.9"
+xmip = ">=0.7.2,<0.8"
+xarray = ">=2024.10.0,<2025"
+pandas = ">=2.2.3,<3"
+matplotlib = ">=3.9.2,<4"
+numpy = ">=1.26.4,<2"
+gcsfs = ">=2024.10.0,<2025"
+fsspec = ">=2024.10.0,<2025"
+cartopy = ">=0.24.0,<0.25"
+intake = ">=2.0.7,<3"
+ipykernel = ">=6.29.5,<7"
+jupyterlab = ">=4.3.1,<5"
+cf_xarray = ">=0.10.0,<0.11"
+intake-esm = ">=2023.11.10,<2024"
+fcts = "*"

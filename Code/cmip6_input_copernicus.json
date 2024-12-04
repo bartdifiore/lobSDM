@@ -1,0 +1,324 @@
+{
+    "requests": [
+      {
+        "model": "UKESM1-0-LL",
+        "experiment": "historical",
+        "variable": "tos",
+        "member_id": "r1i1p1f1",
+        "area": [25, -90, 60, -50],
+        "years": [1975, 2014]
+      },
+      {
+        "model": "TalESM1",
+        "experiment": "historical",
+        "variable": "tos",
+        "member_id": "r1i1p1f1",
+        "area": [25, -90, 60, -50],
+        "years": [1975, 2014]
+      },
+      {
+        "model": "NorESM2-MM",
+        "experiment": "historical",
+        "variable": "tos",
+        "member_id": "r1i1p1f1",
+        "area": [25, -90, 60, -50],
+        "years": [1975, 2014]
+      },
+      {
+        "model": "NorESM2-LM",
+        "experiment": "historical",
+        "variable": "tos",
+        "member_id": "r1i1p1f1",
+        "area": [25, -90, 60, -50],
+        "years": [1975, 2014]
+      },
+      {
+        "model": "NESM3",
+        "experiment": "historical",
+        "variable": "tos",
+        "member_id": "r1i1p1f1",
+        "area": [25, -90, 60, -50],
+        "years": [1975, 2014]
+      },
+      {
+        "model": "MRI-ESM2-0",
+        "experiment": "historical",
+        "variable": "tos",
+        "member_id": "r1i1p1f1",
+       "area": [25, -90, 60, -50],
+        "years": [1975, 2014]
+      },
+      {
+        "model": "MPI-ESM1-2-LR",
+        "experiment": "historical",
+        "variable": "tos",
+        "member_id": "r1i1p1f1",
+        "area": [25, -90, 60, -50],
+        "years": [1975, 2014]
+      },
+      {
+        "model": "MPI-ESM1-2-HR",
+        "experiment": "historical",
+        "variable": "tos",
+        "member_id": "r1i1p1f1",
+        "area": [25, -90, 60, -50],
+        "years": [1975, 2014]
+      },
+      {
+        "model": "MIROC",
+        "experiment": "historical",
+        "variable": "tos",
+        "member_id": "r1i1p1f1",
+        "area": [25, -90, 60, -50],
+        "years": [1975, 2014]
+      },
+      {
+        "model": "MIROC-ES2L",
+        "experiment": "historical",
+        "variable": "tos",
+        "member_id": "r1i1p1f1",
+       "area": [25, -90, 60, -50],
+        "years": [1975, 2014]
+      },
+      {
+        "model": "MCM-UA-1-0",
+        "experiment": "historical",
+        "variable": "tos",
+        "member_id": "r1i1p1f1",
+        "area": [25, -90, 60, -50],
+        "years": [1975, 2014]
+      },
+      {
+        "model": "KACE-1-0-G",
+        "experiment": "historical",
+        "variable": "tos",
+        "member_id": "r1i1p1f1",
+        "area": [25, -90, 60, -50],
+        "years": [1975, 2014]
+      },
+      {
+        "model": "IPSL-CM6A-LR",
+        "experiment": "historical",
+        "variable": "tos",
+        "member_id": "r1i1p1f1",
+        "area": [25, -90, 60, -50],
+        "years": [1975, 2014]
+      },
+      {
+        "model": "INM-CM5-0",
+        "experiment": "historical",
+        "variable": "tos",
+        "member_id": "r1i1p1f1",
+        "area": [25, -90, 60, -50],
+        "years": [1975, 2014]
+      },
+      {
+        "model": "INM-CM4-8",
+        "experiment": "historical",
+        "variable": "tos",
+        "member_id": "r1i1p1f1",
+        "area": [25, -90, 60, -50],
+        "years": [1975, 2014]
+      },
+      {
+        "model": "IITM-ESM",
+        "experiment": "historical",
+        "variable": "tos",
+        "member_id": "r1i1p1f1",
+        "area": [25, -90, 60, -50],
+        "years": [1975, 2014]
+      },
+      {
+        "model": "HadGEM3-GC31-MM",
+        "experiment": "historical",
+        "variable": "tos",
+        "member_id": "r1i1p1f1",
+        "area": [25, -90, 60, -50],
+        "years": [1975, 2014]
+      },
+      {
+        "model": "HadGEM3-GC31-LL",
+        "experiment": "historical",
+        "variable": "tos",
+        "member_id": "r1i1p1f1",
+        "area": [25, -90, 60, -50],
+        "years": [1975, 2014]
+      },
+      {
+        "model": "GFDL-ESM4",
+        "experiment": "historical",
+        "variable": "tos",
+        "member_id": "r1i1p1f1",
+        "area": [25, -90, 60, -50],
+        "years": [1975, 2014]
+      },
+      {
+        "model": "GISS-E2-1-G",
+        "experiment": "historical",
+        "variable": "tos",
+        "member_id": "r1i1p1f1",
+        "area": [25, -90, 60, -50],
+        "years": [1975, 2014]
+      },
+      {
+        "model": "FIO-ESM-2-0",
+        "experiment": "historical",
+        "variable": "tos",
+        "member_id": "r1i1p1f1",
+        "area": [25, -90, 60, -50],
+        "years": [1975, 2014]
+      },
+      {
+        "model": "FGOALS-g3",
+        "experiment": "historical",
+        "variable": "tos",
+        "member_id": "r1i1p1f1",
+        "area": [25, -90, 60, -50],
+        "years": [1975, 2014]
+      },
+      {
+        "model": "FGOALS-f3-L",
+        "experiment": "historical",
+        "variable": "tos",
+        "member_id": "r1i1p1f1",
+        "area": [25, -90, 60, -50],
+        "years": [1975, 2014]
+      },
+      {
+        "model": "EC-Earth3-Veg-LR",
+        "experiment": "historical",
+        "variable": "tos",
+        "member_id": "r1i1p1f1",
+        "area": [25, -90, 60, -50],
+        "years": [1975, 2014]
+      },
+      {
+        "model": "EC-Earth3-Veg",
+        "experiment": "historical",
+        "variable": "tos",
+        "member_id": "r1i1p1f1",
+        "area": [25, -90, 60, -50],
+        "years": [1975, 2014]
+      },
+      {
+        "model": "EC-Earth3",
+        "experiment": "historical",
+        "variable": "tos",
+        "member_id": "r1i1p1f1",
+        "area": [25, -90, 60, -50],
+        "years": [1975, 2014]
+      },
+      {
+        "model": "CNRM-CM6-1",
+        "experiment": "historical",
+        "variable": "tos",
+        "member_id": "r1i1p1f1",
+        "area": [25, -90, 60, -50],
+        "years": [1975, 2014]
+      },
+      {
+        "model": "CMCC-ESM2",
+        "experiment": "historical",
+        "variable": "tos",
+        "member_id": "r1i1p1f1",
+        "area": [25, -90, 60, -50],
+        "years": [1975, 2014]
+      },
+      {
+        "model": "CMCC-CM2-SR5",
+        "experiment": "historical",
+        "variable": "tos",
+        "member_id": "r1i1p1f1",
+        "area": [25, -90, 60, -50],
+        "years": [1975, 2014]
+      },
+      {
+        "model": "CIESM",
+        "experiment": "historical",
+        "variable": "tos",
+        "member_id": "r1i1p1f1",
+        "area": [25, -90, 60, -50],
+        "years": [1975, 2014]
+      },
+      {
+        "model": "CESM2-WACCM",
+        "experiment": "historical",
+        "variable": "tos",
+        "member_id": "r1i1p1f1",
+        "area": [25, -90, 60, -50],
+        "years": [1975, 2014]
+      },
+      {
+        "model": "CESM2",
+        "experiment": "historical",
+        "variable": "tos",
+        "member_id": "r1i1p1f1",
+        "area": [25, -90, 60, -50],
+        "years": [1975, 2014]
+      },
+      {
+        "model": "CAS-ESM2-0",
+        "experiment": "historical",
+        "variable": "tos",
+        "member_id": "r1i1p1f1",
+        "area": [25, -90, 60, -50],
+        "years": [1975, 2014]
+      },
+      {
+        "model": "CanESM5-CanOE",
+        "experiment": "historical",
+        "variable": "tos",
+        "member_id": "r1i1p1f1",
+        "area": [25, -90, 60, -50],
+        "years": [1975, 2014]
+      },
+      {
+        "model": "CanESM5",
+        "experiment": "historical",
+        "variable": "tos",
+        "member_id": "r1i1p1f1",
+        "area": [25, -90, 60, -50],
+        "years": [1975, 2014]
+      },
+      {
+        "model": "CAMS-CSM1-0",
+        "experiment": "historical",
+        "variable": "tos",
+        "member_id": "r1i1p1f1",
+        "area": [25, -90, 60, -50],
+        "years": [1975, 2014]
+      },
+      {
+        "model": "BCC-CSM2-MR",
+        "experiment": "historical",
+        "variable": "tos",
+        "member_id": "r1i1p1f1",
+        "area": [25, -90, 60, -50],
+        "years": [1975, 2014]
+      },
+      {
+        "model": "AWI-CM-1-1-MR",
+        "experiment": "historical",
+        "variable": "tos",
+        "member_id": "r1i1p1f1",
+        "area": [25, -90, 60, -50],
+        "years": [1975, 2014]
+      },
+      {
+        "model": "ACCESS-ESM1-5",
+        "experiment": "historical",
+        "variable": "tos",
+        "member_id": "r1i1p1f1",
+        "area": [25, -90, 60, -50],
+        "years": [1975, 2014]
+      },
+      {
+        "model": "ACCESS-CM2",
+        "experiment": "historical",
+        "variable": "tos",
+        "member_id": "r1i1p1f1",
+        "area": [25, -90, 60, -50],
+        "years": [1975, 2014]
+      }
+    ]
+}
