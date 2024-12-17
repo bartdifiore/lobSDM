@@ -8,39 +8,69 @@ library(tidyverse)
 library(raster)
 library(stringr)
 
-experiment<- "ssp1_26"
+# # Don't want to force this on source
+#experiment <- "ssp1_26"
 
 # Common cropping area for all the netcdf files used in this project
 study_area <- extent(c(260, 320, 20, 70))
 
-# Common month abbreviations
-month_abbrevs <- c("Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec")
+# Common month abbreviations - These exist as a base object
+# month_abbrevs <- c("Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec")
+month_abbrevs <- month.abb
 
 # Months as 0-padded numerics
 months_numeric <- str_pad(seq(from = 1, to = 12, by = 1), width = 2, side = "left", pad = 0)
 
 
-# date keys for the different cmip runs
+
+
+# # date keys for the different cmip runs
+# cmip_date_key_fun <- function(experiment){
+#   cmip_date_key <- list(
+#   "surf_temp" = list(
+#     "historic_runs"        = read_csv('/Users/aallyn/Library/CloudStorage/Box-Box/RES_Data/CMIP6/DateKeys_historical/surf_temp/surf_temp_historic_runs.csv', col_types = cols()),
+#     "future_projections"   = read_csv(paste0('/Users/aallyn/Library/CloudStorage/Box-Box/RES_Data/CMIP6/', experiment,'/DateKeys/surf_temp/surf_temp_future_projections.csv'), col_types = cols()),
+#     "extended_projections" = read_csv(paste0('/Users/aallyn/Library/CloudStorage/Box-Box/RES_Data/CMIP6/', experiment,'/DateKeys/surf_temp/surf_temp_over_run.csv'), col_types = cols())),
+#   "surf_sal" = list(
+#     "historic_runs"        = read_csv('/Users/aallyn/Library/CloudStorage/Box-Box/RES_Data/CMIP6/DateKeys_historical/surf_sal/surf_sal_historic_runs.csv', col_types = cols()),
+#     "future_projections"   = read_csv(paste0('/Users/aallyn/Library/CloudStorage/Box-Box/RES_Data/CMIP6/', experiment,'/DateKeys/surf_sal/surf_sal_future_projections.csv'), col_types = cols()),
+#     "extended_projections" = read_csv(paste0('/Users/aallyn/Library/CloudStorage/Box-Box/RES_Data/CMIP6/', experiment,'/DateKeys/surf_sal/surf_sal_over_run.csv'), col_types = cols())),
+#   "bot_temp" = list(
+#     "historic_runs"        = read_csv('/Users/aallyn/Library/CloudStorage/Box-Box/RES_Data/CMIP6/DateKeys_historical/bot_temp/bot_temp_historic_runs.csv', col_types = cols()),
+#     "future_projections"   = read_csv(paste0('/Users/aallyn/Library/CloudStorage/Box-Box/RES_Data/CMIP6/', experiment,'/DateKeys/bot_temp/bot_temp_future_projections.csv'), col_types = cols()),
+#     "extended_projections" = read_csv(paste0('/Users/aallyn/Library/CloudStorage/Box-Box/RES_Data/CMIP6/', experiment,'/DateKeys/bot_temp/bot_temp_over_run.csv'), col_types = cols())),
+#   "bot_sal" = list(
+#     "historic_runs"        = read_csv('/Users/aallyn/Library/CloudStorage/Box-Box/RES_Data/CMIP6/DateKeys_historical/bot_sal/bot_sal_historic_runs.csv', col_types = cols()),
+#     "future_projections"   = read_csv(paste0('/Users/aallyn/Library/CloudStorage/Box-Box/RES_Data/CMIP6/', experiment,'/DateKeys/bot_sal/bot_sal_future_projections.csv'), col_types = cols()),
+#     "extended_projections" = read_csv(paste0('/Users/aallyn/Library/CloudStorage/Box-Box/RES_Data/CMIP6/', experiment,'/DateKeys/bot_sal/bot_sal_over_run.csv'), col_types = cols())
+#   )
+#   )}
+
+# Making it more flexible for us
+cmip_path <- cs_path("res", "CMIP6")
 cmip_date_key_fun <- function(experiment){
   cmip_date_key <- list(
-  "surf_temp" = list(
-    "historic_runs"        = read_csv('/Users/aallyn/Library/CloudStorage/Box-Box/RES_Data/CMIP6/DateKeys_historical/surf_temp/surf_temp_historic_runs.csv', col_types = cols()),
-    "future_projections"   = read_csv(paste0('/Users/aallyn/Library/CloudStorage/Box-Box/RES_Data/CMIP6/', experiment,'/DateKeys/surf_temp/surf_temp_future_projections.csv'), col_types = cols()),
-    "extended_projections" = read_csv(paste0('/Users/aallyn/Library/CloudStorage/Box-Box/RES_Data/CMIP6/', experiment,'/DateKeys/surf_temp/surf_temp_over_run.csv'), col_types = cols())),
-  "surf_sal" = list(
-    "historic_runs"        = read_csv('/Users/aallyn/Library/CloudStorage/Box-Box/RES_Data/CMIP6/DateKeys_historical/surf_sal/surf_sal_historic_runs.csv', col_types = cols()),
-    "future_projections"   = read_csv(paste0('/Users/aallyn/Library/CloudStorage/Box-Box/RES_Data/CMIP6/', experiment,'/DateKeys/surf_sal/surf_sal_future_projections.csv'), col_types = cols()),
-    "extended_projections" = read_csv(paste0('/Users/aallyn/Library/CloudStorage/Box-Box/RES_Data/CMIP6/', experiment,'/DateKeys/surf_sal/surf_sal_over_run.csv'), col_types = cols())),
-  "bot_temp" = list(
-    "historic_runs"        = read_csv('/Users/aallyn/Library/CloudStorage/Box-Box/RES_Data/CMIP6/DateKeys_historical/bot_temp/bot_temp_historic_runs.csv', col_types = cols()),
-    "future_projections"   = read_csv(paste0('/Users/aallyn/Library/CloudStorage/Box-Box/RES_Data/CMIP6/', experiment,'/DateKeys/bot_temp/bot_temp_future_projections.csv'), col_types = cols()),
-    "extended_projections" = read_csv(paste0('/Users/aallyn/Library/CloudStorage/Box-Box/RES_Data/CMIP6/', experiment,'/DateKeys/bot_temp/bot_temp_over_run.csv'), col_types = cols())),
-  "bot_sal" = list(
-    "historic_runs"        = read_csv('/Users/aallyn/Library/CloudStorage/Box-Box/RES_Data/CMIP6/DateKeys_historical/bot_sal/bot_sal_historic_runs.csv', col_types = cols()),
-    "future_projections"   = read_csv(paste0('/Users/aallyn/Library/CloudStorage/Box-Box/RES_Data/CMIP6/', experiment,'/DateKeys/bot_sal/bot_sal_future_projections.csv'), col_types = cols()),
-    "extended_projections" = read_csv(paste0('/Users/aallyn/Library/CloudStorage/Box-Box/RES_Data/CMIP6/', experiment,'/DateKeys/bot_sal/bot_sal_over_run.csv'), col_types = cols())
-  )
+    "surf_temp" = list(
+      "historic_runs"        = read_csv(paste0(cmip_path, 'DateKeys_historical/surf_temp/surf_temp_historic_runs.csv'), col_types = cols()),
+      "future_projections"   = read_csv(paste0(cmip_path, experiment,'/DateKeys/surf_temp/surf_temp_future_projections.csv'), col_types = cols()),
+      "extended_projections" = read_csv(paste0(cmip_path, experiment,'/DateKeys/surf_temp/surf_temp_over_run.csv'), col_types = cols())),
+    "surf_sal" = list(
+      "historic_runs"        = read_csv(paste0(cmip_path, 'DateKeys_historical/surf_sal/surf_sal_historic_runs.csv'), col_types = cols()),
+      "future_projections"   = read_csv(paste0(cmip_path, experiment,'/DateKeys/surf_sal/surf_sal_future_projections.csv'), col_types = cols()),
+      "extended_projections" = read_csv(paste0(cmip_path, experiment,'/DateKeys/surf_sal/surf_sal_over_run.csv'), col_types = cols())),
+    "bot_temp" = list(
+      "historic_runs"        = read_csv(paste0(cmip_path, 'DateKeys_historical/bot_temp/bot_temp_historic_runs.csv'), col_types = cols()),
+      "future_projections"   = read_csv(paste0(cmip_path, experiment,'/DateKeys/bot_temp/bot_temp_future_projections.csv'), col_types = cols()),
+      "extended_projections" = read_csv(paste0(cmip_path, experiment,'/DateKeys/bot_temp/bot_temp_over_run.csv'), col_types = cols())),
+    "bot_sal" = list(
+      "historic_runs"        = read_csv(paste0(cmip_path, 'DateKeys_historical/bot_sal/bot_sal_historic_runs.csv'), col_types = cols()),
+      "future_projections"   = read_csv(paste0(cmip_path, experiment,'/DateKeys/bot_sal/bot_sal_future_projections.csv'), col_types = cols()),
+      "extended_projections" = read_csv(paste0(cmip_path, experiment,'/DateKeys/bot_sal/bot_sal_over_run.csv'), col_types = cols())
+    )
   )}
+
+
+
 
 
 ####  OISST Processing  ####
@@ -50,7 +80,7 @@ cmip_date_key_fun <- function(experiment){
 #' 
 #' @description Load OISST climatology from box as a raster stack
 #'
-#' @param climatology_period Choices: "1991-2020" or "1982-2011"
+#' @param climatology_period Choices: "1991-2020" or "1982-2011" or "1985-2014" for bias correction against CMIP6
 #' @param os.use Specification for gmRi::shared.path for Mac/Windows paths
 #'
 #' @return Rster stack of OISST Daily Climatology cropped to study area
@@ -103,22 +133,33 @@ import_cmip_collection <- function(cmip_var = c("bot_sal", "bot_temp", "surf_tem
   
   
   # Set folder path to single variable extractions
-  cmip_var_folder <- switch (cmip_var,
-                             "bot_sal"   = paste0(cmip_path, "BottomSal/StGrid"),
-                             "bot_temp"  = paste0(cmip_path, "BottomT/StGrid"),
-                             "surf_temp" = paste0(cmip_path, "SST/StGrid"),
-                             "surf_sal"  = paste0(cmip_path, "SurSalinity/StGrid"))  
+  # These are created in ____
+  cmip_var_folder <- switch(
+    EXPR = cmip_var,
+    "bot_sal"   = paste0(cmip_path, "BottomSal/StGrid"),
+    "bot_temp"  = paste0(cmip_path, "BottomT/StGrid"),
+    "surf_temp" = paste0(cmip_path, "SST/StGrid"),
+    "surf_sal"  = paste0(cmip_path, "SurSalinity/StGrid"))  
   
   # Get File List, set the source names
-  cmip_names <- list.files(cmip_var_folder, full.names = F, pattern = ".nc") %>% str_remove(".nc")
-  cmip_files <- list.files(cmip_var_folder, full.names = T, pattern  = ".nc") %>% setNames(cmip_names)
+  cmip_names <- list.files(
+    cmip_var_folder, 
+    full.names = F, 
+    pattern = ".nc") %>% 
+    str_remove(".nc")
+  cmip_files <- list.files(
+    cmip_var_folder, 
+    full.names = T, 
+    pattern  = ".nc") %>% 
+    setNames(cmip_names)
   
   # Set variable name for the different CMIP netcdf files
-  var_name <- switch(cmip_var,
-                     "bot_sal"   = "so",
-                     "bot_temp"  = "thetao",
-                     "surf_temp" = "tos",
-                     "surf_sal"  = "so")
+  var_name <- switch(
+    EXPR = cmip_var,
+    "bot_sal"   = "so",
+    "bot_temp"  = "thetao",
+    "surf_temp" = "tos",
+    "surf_sal"  = "so")
   
   
   # Open the files and crop them all in one go
@@ -280,23 +321,47 @@ import_soda_clim <- function(soda_var = c("surf_sal", "surf_temp", "bot_sal", "b
 #'
 #' @examples
 get_cmip_dates <- function(cmip_source, cmip_var, time_dim){
+  # Check that the CMIP6 ID's are in the catalog: 
+  # source/member/institution/experiement IDs
+  
+  # Do the historic runs
   if(cmip_source %in% names(cmip_date_key[[cmip_var]]$historic_runs)){ 
+    
+    # From the date key, for the variable, get the historic runs and source info
     cmip_dates <- cmip_date_key[[cmip_var]][["historic_runs"]][, cmip_source] %>% 
       pull(1) %>% 
-      as.Date() } else if(cmip_source %in% names(cmip_date_key[[cmip_var]]$future_projections)){ 
-        cmip_dates <- cmip_date_key[[cmip_var]][["future_projections"]][, cmip_source] %>% 
+      as.Date() 
+  
+  # Do the future projections
+  } else if(cmip_source %in% names(cmip_date_key[[cmip_var]]$future_projections)){ 
+        
+    cmip_dates <- cmip_date_key[[cmip_var]][["future_projections"]][, cmip_source] %>% 
           pull(1) %>% 
-          as.Date() } else if(cmip_source %in% names(cmip_date_key[[cmip_var]]$extended_projections)){ 
-            cmip_dates <- cmip_date_key[[cmip_var]][["extended_projections"]][, cmip_source] %>% 
-              pull(1) %>% 
-              as.Date() 
+          as.Date() 
+  
+  # and lastly, extended projections
+  } else if(cmip_source %in% names(cmip_date_key[[cmip_var]]$extended_projections)){ 
             
-            # What to do if not any of them?
-          } else if(time_dim == 780){
-            cmip_dates <- map(str_pad(c(1:12), 2, pad = "0", side = "left"), ~ paste0("X", c(1950:2014), ".", .x)) %>% unlist() %>% sort()
-          } else if(time_dim == 1032){
-            cmip_dates <- map(str_pad(c(1:12), 2, pad = "0", side = "left"), ~ paste0("X", c(2015:2100), ".", .x)) %>% unlist() %>% sort()
-          }
+    cmip_dates <- cmip_date_key[[cmip_var]][["extended_projections"]][, cmip_source] %>% 
+          pull(1) %>% 
+          as.Date() 
+            
+  # What to do if not any of them?
+  } else if(time_dim == 780){
+    
+    cmip_dates <- map(
+      str_pad(c(1:12), 2, pad = "0", side = "left"), 
+      ~ paste0("X", c(1950:2014), ".", .x)) %>% 
+      unlist() %>% 
+      sort()
+          
+    } else if(time_dim == 1032){
+      mip_dates <- map(
+        str_pad(c(1:12), 2, pad = "0", side = "left"), 
+        ~ paste0("X", c(2015:2100), ".", .x)) %>% 
+        unlist() %>% 
+        sort()
+      }
   
   return(cmip_dates)}
 

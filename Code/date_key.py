@@ -9,8 +9,8 @@ import pandas as pd
 
 
 ####  Purpose:
-# Due to the unusual calendar type used in these models R hass not been reading in dates 
-# that are consistent with their values on xarray
+# Due to the unusual calendar type used in these models (cftimes) 
+# R has not been reading in dates that are consistent with their values on xarray
 # this script builds lookup tables to use for cross-referencing the dates back into R
 
 
@@ -25,10 +25,11 @@ import pandas as pd
 workspace = "local"
 
 # Set username
-UsrName='mdzaugis'
+# UsrName = 'mdzaugis'
+UsrName = 'adamkemberling'
 
 # Set spp experiment
-experiment='ssp1_26'
+experiment = 'ssp1_26'
 
 # Root paths for sdm_workflows project - local/docker
 root_locations = {
@@ -41,10 +42,11 @@ print(f"Working via {workspace} directory at: {box_root}")
 
 
 # Path to cmip data sources on BOX
-cmip_path = {"surf_sal"  : f"{box_root}RES_Data/CMIP6/{experiment}/SurSalinity/StGrid/",
-             "bot_sal"   : f"{box_root}RES_Data/CMIP6/{experiment}/BottomSal/StGrid/",
-             "surf_temp" : f"{box_root}RES_Data/CMIP6/{experiment}/SST/StGrid/",
-             "bot_temp"  : f"{box_root}RES_Data/CMIP6/{experiment}/BottomT/StGrid/"}
+cmip_path = {
+  "surf_sal"  : f"{box_root}RES_Data/CMIP6/{experiment}/SurSalinity/StGrid/",
+  "bot_sal"   : f"{box_root}RES_Data/CMIP6/{experiment}/BottomSal/StGrid/",
+  "surf_temp" : f"{box_root}RES_Data/CMIP6/{experiment}/SST/StGrid/",
+  "bot_temp"  : f"{box_root}RES_Data/CMIP6/{experiment}/BottomT/StGrid/"}
 
 
 # Pick a variable

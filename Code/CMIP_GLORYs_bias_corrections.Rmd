@@ -24,8 +24,14 @@ editor_options:
 ```{r setup, include=FALSE}
 
 # Set knitr options
-knitr::opts_chunk$set(echo = TRUE, message = T, warning = F, comment = NA)
-options(knitr.kable.NA = '')
+knitr::opts_chunk$set(
+  echo = TRUE, 
+  message = T, 
+  warning = F, 
+  comment = NA)
+
+# This prints NA's as empty text in knitr::kable() btw
+options(knitr.kable.NA = '') 
 
 ###__ Packages  ####
 library(here)
@@ -75,24 +81,34 @@ pick_var <- "bot_temp"
 experiment <- "ssp5_85"
 
 # Load all the CMIP Scenarios - cropped to study area
-cmip_data <- import_cmip_collection(cmip_var = pick_var, experiment)
+cmip_data <- import_cmip_collection(
+  cmip_var = pick_var, 
+  experiment)
 ```
+
+
 
 
 ### Match Dates to Xarray
 
-Sometimes the raster package has an issue with the dates used by the climate models, more specifically how its a non-standard calendar without leap years. Xarray doesn't really have an issue for some reason, so this step matches the file to what the dates should be, to ensure proper date comparisons down the line.
+Sometimes the raster package has an issue with the dates used by the climate models, more specifically how its a non-standard calendar without leap years. These are "cftimes", and don't match standard date-parsing tools.
+
+Xarray doesn't really have an issue for some reason, so this step matches the file to what the dates should be based on how they appear in xarray. This ensures proper date comparisons down the line.
+
+The date keys (key to match cftimes from xarray based on cmip6 model run ID) are made in `date_keys.py`. A short python script that opens each dataset and stores the dates with the model ID as a lookup table.
 
 ```{r get layer names}
 
 # Get the cftime dates from the date key - this ensures proper date matching
 # the fallback is to assign year and month generally based on if its an historic run or not
-cmip_data <- imap(.x = cmip_data, 
-                  .f = function(cmip_dataset, cmip_source){
-  message(paste("Setting Names for: ", cmip_source))
-  names(cmip_dataset) <- get_cmip_dates(cmip_source = cmip_source, 
-                                        cmip_var = pick_var,
-                                        time_dim = dim(cmip_dataset)[3])
+cmip_data <- imap(
+  .x = cmip_data, 
+  .f = function(cmip_dataset, cmip_source){
+    message(paste("Setting Names for: ", cmip_source))
+    names(cmip_dataset) <- get_cmip_dates(
+      cmip_source = cmip_source, 
+      cmip_var = pick_var,
+      time_dim = dim(cmip_dataset)[3])
   return(cmip_dataset)})
 
 ```
@@ -105,9 +121,12 @@ plot(cmip_data[[1]][[1]],
      col = temp_pal)
 ```
 
+
 ### Screening Strange Values
 
-There is the possibility that in some data sources or different raster layers within them that values that are exceptionally high or low may be used in place of an explicit `NA`. These will be issues when we look across models to get summary metrics.
+There is the possibility that in some data sources or different raster layers within them that values that are exceptionally high or low may be used in place of an explicit `NA`. 
+
+These will cause issues when we look across models to get summary metrics. This step screens them for extreme fill values using the `raster::clamp` function.
 
 
 ```{r}
@@ -159,12 +178,19 @@ name_structure <- tdims
 ```
 
 
-## Build CMIP Climatologies
-
-Need two things now:
+**Need two things now:**
 
  1. CMIP6 Climatology for the variables we loaded
+
+The `cmip_to_clim` function will take the CMIP6 data for a given model, subset it to a desired range of years, and compute a monthly climatological average for that period.
+ 
  2. The corresponding anomalies
+
+Once we have the climatologies, we can compute respective monthly anomalies from that climatological period. This is done in the next step with `cmip_get_anomalies`
+
+## Build CMIP Climatologies
+
+As mentioned above, each CMIP6 model will have its own monthly climatology. These are computed in the following cell.
 
 
 ```{r}
@@ -185,8 +211,10 @@ cmip_clims <- imap(cmip_data[historic_runs], function(cmip_stack, cmip_name){
   
   # Get monthly climatology
   message(paste0("Processing Climatology: ", cmip_name))
-  cmip_clim <- suppressMessages(cmip_to_clim(cmip_stack = cmip_stack, 
-                                             clim_years = c(start_year, end_year)))
+  cmip_clim <- suppressMessages(
+    cmip_to_clim(
+      cmip_stack = cmip_stack, 
+      clim_years = c(start_year, end_year)))
   
   # return the climatology (should work b/c smaller)
   return(cmip_clim)})
