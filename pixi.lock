@@ -282,6 +282,7 @@ environments:
       - conda: https://conda.anaconda.org/conda-forge/noarch/pyshp-2.3.1-pyhd8ed1ab_0.tar.bz2
       - conda: https://conda.anaconda.org/conda-forge/noarch/pysocks-1.7.1-pyha2e5f31_6.tar.bz2
       - conda: https://conda.anaconda.org/conda-forge/osx-64/python-3.10.15-hd8744da_2_cpython.conda
+      - conda: https://conda.anaconda.org/conda-forge/noarch/python-cdo-1.6.0-pyhd8ed1ab_0.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/python-dateutil-2.9.0.post0-pyhff2d567_0.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/python-fastjsonschema-2.20.0-pyhd8ed1ab_0.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/python-json-logger-2.0.7-pyhd8ed1ab_0.conda
@@ -5319,6 +5320,24 @@ packages:
   license: Python-2.0
   size: 12924349
   timestamp: 1729042113444
+- kind: conda
+  name: python-cdo
+  version: 1.6.0
+  build: pyhd8ed1ab_0
+  subdir: noarch
+  noarch: python
+  url: https://conda.anaconda.org/conda-forge/noarch/python-cdo-1.6.0-pyhd8ed1ab_0.conda
+  sha256: f4f55f2c38d89b100ddd5ebd52068c555db7311ed7d375af129b4acec50cf886
+  md5: 3fd1a0b063c1fbbe4b7bd5a5a7601e84
+  depends:
+  - cdo
+  - python >=3.6
+  - setuptools
+  - six
+  license: BSD-3-Clause
+  license_family: BSD
+  size: 26915
+  timestamp: 1685005439807
 - kind: conda
   name: python-dateutil
   version: 2.9.0.post0

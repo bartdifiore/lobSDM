@@ -46,9 +46,12 @@ months_numeric <- str_pad(seq(from = 1, to = 12, by = 1), width = 2, side = "lef
 #   )
 #   )}
 
+
+
 # Making it more flexible for us
 cmip_path <- cs_path("res", "CMIP6")
-cmip_date_key_fun <- function(experiment){
+
+cmip_date_key_fun <- function(experiment, grid = "StGrid_"){
   cmip_date_key <- list(
     "surf_temp" = list(
       "historic_runs"        = read_csv(paste0(cmip_path, 'DateKeys_historical/surf_temp/surf_temp_historic_runs.csv'), col_types = cols()),
@@ -72,41 +75,7 @@ cmip_date_key_fun <- function(experiment){
 
 
 
-
-####  OISST Processing  ####
-
-
-#' @title Import OISST Climatology
-#' 
-#' @description Load OISST climatology from box as a raster stack
-#'
-#' @param climatology_period Choices: "1991-2020" or "1982-2011" or "1985-2014" for bias correction against CMIP6
-#' @param os.use Specification for gmRi::shared.path for Mac/Windows paths
-#'
-#' @return Rster stack of OISST Daily Climatology cropped to study area
-
-import_oisst_clim <- function(climatology_period = "1985-2014"){
-  
-  # Path to OISST on Box
-  oisst_path <- cs_path("RES_Data", "OISST/oisst_mainstays/daily_climatologies/")
-  
-  # Path to specific climatology
-  climatology_path <- switch(climatology_period,
-    "1991-2020" = paste0(oisst_path, "daily_clims_1991to2020.nc"),
-    "1982-2011" = paste0(oisst_path, "daily_clims_1982to2011.nc"),
-    "1985-2014" = paste0(oisst_path, "daily_clims_1985to2014.nc"))
-  
-  # Load the Raster Stack
-  clim_stack <- stack(climatology_path)
-  
-  # Crop it to study area and return
-  clim_cropped <- crop(clim_stack, study_area)
-  return(clim_cropped)
-}
-
-
-
-
+#### CMIP Loading/Processing  ####
 
 
 
@@ -117,14 +86,19 @@ import_oisst_clim <- function(climatology_period = "1985-2014"){
 #'
 #' @param cmip_var Indication of what variable you want to load with raster::stack()
 #' @param experiment Name of the ssp experiment you want to load
+#' @param grid Subfolder string for which grid (StGrid or GlorysGrid) to load the collection from
 #'
 #' @return
 #' @export
 #'
 #' @examples
-import_cmip_collection <- function(cmip_var = c("bot_sal", "bot_temp", "surf_temp", "surf_sal"),
-                                   experiment = experiment,
-                                   os.use = "unix"){
+import_cmip_collection <- function(
+    cmip_var = c("bot_sal", "bot_temp", "surf_temp", "surf_sal"),
+    experiment = experiment,
+    grid = "StGrid",
+    os.use = "unix"){
+  
+  
   # Experiment Folder
   expfolder <- paste0("CMIP6/", experiment)
   
@@ -136,10 +110,10 @@ import_cmip_collection <- function(cmip_var = c("bot_sal", "bot_temp", "surf_tem
   # These are created in ____
   cmip_var_folder <- switch(
     EXPR = cmip_var,
-    "bot_sal"   = paste0(cmip_path, "BottomSal/StGrid"),
-    "bot_temp"  = paste0(cmip_path, "BottomT/StGrid"),
-    "surf_temp" = paste0(cmip_path, "SST/StGrid"),
-    "surf_sal"  = paste0(cmip_path, "SurSalinity/StGrid"))  
+    "bot_sal"   = paste0(cmip_path, "BottomSal/", grid),
+    "bot_temp"  = paste0(cmip_path, "BottomT/", grid),
+    "surf_temp" = paste0(cmip_path, "SST/", grid),
+    "surf_sal"  = paste0(cmip_path, "SurSalinity/", grid))  
   
   # Get File List, set the source names
   cmip_names <- list.files(
@@ -147,6 +121,7 @@ import_cmip_collection <- function(cmip_var = c("bot_sal", "bot_temp", "surf_tem
     full.names = F, 
     pattern = ".nc") %>% 
     str_remove(".nc")
+  
   cmip_files <- list.files(
     cmip_var_folder, 
     full.names = T, 
@@ -163,12 +138,14 @@ import_cmip_collection <- function(cmip_var = c("bot_sal", "bot_temp", "surf_tem
   
   
   # Open the files and crop them all in one go
-  cmip_data <- imap(cmip_files, function(cmip_file, cmip_name){
-    message(paste0("Opening File: ", cmip_name))
-    stack_out <- raster::stack(cmip_file, varname = var_name)
+  cmip_data <- imap(
+    .x = cmip_files, 
+    .f = function(cmip_file, cmip_name){
+      message(paste0("Opening File: ", cmip_name))
+      stack_out <- raster::stack(cmip_file, varname = var_name)
     
-    # Crop it to study area
-    stack_out <- crop(stack_out, study_area)
+    # # Crop it to study area
+    # stack_out <- crop(stack_out, study_area)
     
     return(stack_out)})
   
@@ -231,66 +208,7 @@ months_from_clim <- function(clim_source, month_layer_key = NULL){
  }
 
 
-####  SODA Processing  ####
 
-
-
-#' @title Import SODA Monthly Climatology
-#' 
-#' @description Load raster stack of SODA climatology for desired variable. Choices
-#' are "surf_sal", "surf_temp", "bot_sal", "bot_temp". Area is also cropped to study area.
-#'
-#' @param soda_var variable name to use when stacking data
-#' @param os.use windows mac toggle for box path
-#' @param start_yr Starting year for climatology, 1985 or 1990
-#'
-#' @return Raster stack for monthly climatology, cropped to study area
-#' @export
-#'
-#' @examples
-import_soda_clim <- function(soda_var = c("surf_sal", "surf_temp", "bot_sal", "bot_temp"),
-                             os.use = "unix",
-                             start_yr = "1985"){
-  
-  # Variable key
-  var_key <- c("bot_sal" = "bottom salinity", "bot_temp" = "bottom temperature",
-               "surf_sal" = "surface salinity", "surf_temp" = "surface temperature")
-  
-  # Box path to SODA data
-  soda_path <- shared.path(os.use = os.use, group = "RES_Data", folder = "SODA")
-  
-  # Climatology Path
-  clim_path <- switch(start_yr,
-                      "1985" = paste0(soda_path, "SODA_monthly_climatology1985to2014.nc"),
-                      "1990" = paste0(soda_path, "SODA_monthly_climatology1990to2019.nc") )
-    
-  # message for what went on while testing
-  load_message <- switch(start_yr,
-                         "1985" = paste0("Loading 1985-2014 SODA Climatology Data for ", var_key[soda_var]),
-                         "1990" = paste0("Loading 1990-2019 SODA Climatology Data for ", var_key[soda_var]) )
-  message(load_message)
-  
-  
-  # Open Stack with selected variable
-  soda_clim_stack <- raster::stack(x = clim_path, varname = soda_var)
-  
-  # Crop it to study area - rotate here or no?
-  
-  # No rotation
-  # study_area_180 <- extent(c(-120, -60, 20, 70))
-  # clim_cropped <- crop(soda_clim_stack, study_area_180)
-  
-  # shift it to match 0-360
-  soda_clim_shifted <- map(unstack(soda_clim_stack), ~ shift(rotate(shift(.x, 180)), 180) ) %>% stack()
-  
-  # Crop it to study area - rotate here or no?
-  study_area <- extent(c(260, 320, 20, 70))
-  clim_cropped <- crop(soda_clim_shifted, study_area)
-  
-  return(clim_cropped)
-  
-  
-}
 
 
 
@@ -320,9 +238,13 @@ import_soda_clim <- function(soda_var = c("surf_sal", "surf_temp", "bot_sal", "b
 #' @export
 #'
 #' @examples
-get_cmip_dates <- function(cmip_source, cmip_var, time_dim){
+get_cmip_dates <- function(cmip_source, cmip_var, time_dim, swap_stgrid = FALSE){
   # Check that the CMIP6 ID's are in the catalog: 
   # source/member/institution/experiement IDs
+  
+  # The date keys were originally made with stgrid files,
+  # dates will be the same, but we need to handle the file prefix for matching to work
+  if(swap_stgrid == TRUE){cmip_source <- str_replace(cmip_source, "GlorysGrid_", "stGrid_")}
   
   # Do the historic runs
   if(cmip_source %in% names(cmip_date_key[[cmip_var]]$historic_runs)){ 
@@ -689,6 +611,104 @@ time_period_quantile <- function(time_period = c("historic", "projection"),
 lsos <- function(..., n = 10) {
   .ls.objects(..., order.by = "Size", decreasing = TRUE, head = TRUE, n = n)
 }
+
+
+
+
+####  OISST Processing  ####
+
+
+#' @title Import OISST Climatology
+#' 
+#' @description Load OISST climatology from box as a raster stack
+#'
+#' @param climatology_period Choices: "1991-2020" or "1982-2011" or "1985-2014" for bias correction against CMIP6
+#' @param os.use Specification for gmRi::shared.path for Mac/Windows paths
+#'
+#' @return Rster stack of OISST Daily Climatology cropped to study area
+
+import_oisst_clim <- function(climatology_period = "1985-2014"){
+  
+  # Path to OISST on Box
+  oisst_path <- cs_path("RES_Data", "OISST/oisst_mainstays/daily_climatologies/")
+  
+  # Path to specific climatology
+  climatology_path <- switch(climatology_period,
+                             "1991-2020" = paste0(oisst_path, "daily_clims_1991to2020.nc"),
+                             "1982-2011" = paste0(oisst_path, "daily_clims_1982to2011.nc"),
+                             "1985-2014" = paste0(oisst_path, "daily_clims_1985to2014.nc"))
+  
+  # Load the Raster Stack
+  clim_stack <- stack(climatology_path)
+  
+  # Crop it to study area and return
+  clim_cropped <- crop(clim_stack, study_area)
+  return(clim_cropped)
+}
+
+
+
+####  SODA Processing  ####
+
+
+
+#' @title Import SODA Monthly Climatology
+#' 
+#' @description Load raster stack of SODA climatology for desired variable. Choices
+#' are "surf_sal", "surf_temp", "bot_sal", "bot_temp". Area is also cropped to study area.
+#'
+#' @param soda_var variable name to use when stacking data
+#' @param os.use windows mac toggle for box path
+#' @param start_yr Starting year for climatology, 1985 or 1990
+#'
+#' @return Raster stack for monthly climatology, cropped to study area
+#' @export
+#'
+#' @examples
+import_soda_clim <- function(soda_var = c("surf_sal", "surf_temp", "bot_sal", "bot_temp"),
+                             os.use = "unix",
+                             start_yr = "1985"){
+  
+  # Variable key
+  var_key <- c("bot_sal" = "bottom salinity", "bot_temp" = "bottom temperature",
+               "surf_sal" = "surface salinity", "surf_temp" = "surface temperature")
+  
+  # Box path to SODA data
+  soda_path <- shared.path(os.use = os.use, group = "RES_Data", folder = "SODA")
+  
+  # Climatology Path
+  clim_path <- switch(start_yr,
+                      "1985" = paste0(soda_path, "SODA_monthly_climatology1985to2014.nc"),
+                      "1990" = paste0(soda_path, "SODA_monthly_climatology1990to2019.nc") )
+  
+  # message for what went on while testing
+  load_message <- switch(start_yr,
+                         "1985" = paste0("Loading 1985-2014 SODA Climatology Data for ", var_key[soda_var]),
+                         "1990" = paste0("Loading 1990-2019 SODA Climatology Data for ", var_key[soda_var]) )
+  message(load_message)
+  
+  
+  # Open Stack with selected variable
+  soda_clim_stack <- raster::stack(x = clim_path, varname = soda_var)
+  
+  # Crop it to study area - rotate here or no?
+  
+  # No rotation
+  # study_area_180 <- extent(c(-120, -60, 20, 70))
+  # clim_cropped <- crop(soda_clim_stack, study_area_180)
+  
+  # shift it to match 0-360
+  soda_clim_shifted <- map(unstack(soda_clim_stack), ~ shift(rotate(shift(.x, 180)), 180) ) %>% stack()
+  
+  # Crop it to study area - rotate here or no?
+  study_area <- extent(c(260, 320, 20, 70))
+  clim_cropped <- crop(soda_clim_shifted, study_area)
+  
+  return(clim_cropped)
+  
+  
+}
+
 
 
 

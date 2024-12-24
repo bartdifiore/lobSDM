@@ -1,0 +1,55 @@
+---
+title: "Create cftime Datekeys"
+description: | 
+  Leveraging xarray and cftime libraries to get proper dates from climate models
+date: "Updated on: `r Sys.Date()`"
+format: 
+  html:
+    code-fold: true
+    code-tools: true
+    df-print: kable
+    self-contained: true
+execute: 
+  echo: true
+  warning: false
+  message: false
+  fig.align: "center"
+  comment: ""
+---
+
+# Why?
+
+Climate model datetimes are non-standard, and are not directly supported by standard r libraries for handling datetimes. As a consequence, it is not unusual when loading these NetCDF files into R with `raster` or `terra` for the dates to be wonky.
+
+Since we are working with many files simultaneously and don't want to manually inspect each as we go to catch any bad behavior, we can pull the dates out and store them separately to safeguard against some buggy behavior when switching between languages.
+
+This quarto doc leverages `reticulate` to access the python environment set by `pixi.toml` , and uses xarry to load each file and save a dataframe with the correct dates. This can be loaded into R workflows to set the correct datetimes.
+
+## Finding the Pixi env
+
+Pixi is relatively new and doesn't have rstudio support the way \`conda\` does, so we need to find/specifiy the pixi environment using the path to the binary.
+
+Pixi env information is stored locally in the user directory:
+
+`REPOSITORY_NAME/.pixi/envs/default/bin/pyhon`
+
+To tell rstudio that we'd like to use this environment, we can use the project options tab in the toolbar and set the path for the project.
+
+```{r}
+# This is where the binary hides
+library(here)
+here::here(".pixi/envs/default/bin/python")
+
+# To set it for the project, paste the path into the project options, python tab
+
+# # This does not seem to work
+# library(reticulate)
+# reticulate::use_python("/Users/adamkemberling/Documents/Repositories/lobSDM/.pixi/envs/default/bin/python3.10")
+```
+
+We should now be using the python environment set by `pixi.toml` and have the dependencies we need to keep working.
+
+```{python}
+
+import xarray as xr
+```
