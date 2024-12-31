@@ -60,6 +60,7 @@ def nameFile(base_filename, Scenario):
 
 # find bottom temp for CMIP6
 def find_deepest_depth_indices_CMIP6(ds, dims0, dims1, variable_id, y_coord, x_coord):
+    
     # First get the vertical True/False of valid values
     idx = ds[variable_id].isel(time=0).isnull()
     idx_vals = idx.values
@@ -119,8 +120,14 @@ def find_deepest_depth_indices(ds, variable_id, y_coord, x_coord, depth_coord, m
 
     return ind
 
+
+
+
 def countExp(x):
     return len(np.unique(x['experiment_id']))
+
+
+
 
 def ExperimentFilter(df, grp1, grp2):
 
@@ -128,6 +135,8 @@ def ExperimentFilter(df, grp1, grp2):
     df4 = pd.merge(df3, df, how="left", on=['source_id', 'member_id'])
     df5 = df4.groupby([grp1, 'experiment_id']).apply(lambda x: x.iloc[0]).droplevel(0).reset_index(drop=True)
     return df5
+
+
 
 def CheckMeta(dfList):
     meta = []

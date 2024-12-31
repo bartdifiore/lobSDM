@@ -482,22 +482,25 @@ Now that all the CMIP6 data has been bias corrected using a reference climatolog
 
 
 # Use the time-period length (in months) to Get the mean 5th 95th at each step
-historic_mean <- time_period_quantile(time_period = "historic",
-                                      time_period_collection = historic_bias_corr, 
-                                      quantile_product = "mean")
+historic_mean <- time_period_quantile(
+  time_period = "historic",
+  time_period_collection = historic_bias_corr, 
+  quantile_product = "mean")
 
 
 
 # 5th Percentile
-historic_05 <- time_period_quantile(time_period = "historic",
-                                    time_period_collection = historic_bias_corr, 
-                                    quantile_product = "5th")
+historic_05 <- time_period_quantile(
+  time_period = "historic",
+  time_period_collection = historic_bias_corr, 
+  quantile_product = "5th")
 
 
 # 95th Percentile
-historic_95 <- time_period_quantile(time_period = "historic",
-                                    time_period_collection = historic_bias_corr, 
-                                    quantile_product = "95th")
+historic_95 <- time_period_quantile(
+  time_period = "historic",
+  time_period_collection = historic_bias_corr, 
+  quantile_product = "95th")
 
 
 
@@ -525,21 +528,24 @@ Repeat what we just did for the historical periods for the future projections. A
 
 
 # Mean
-projection_mean <- time_period_quantile(time_period = "projection",
-                                    time_period_collection = projection_bias_corr, 
-                                    quantile_product = "mean")
+projection_mean <- time_period_quantile(
+  time_period = "projection",
+  time_period_collection = projection_bias_corr, 
+  quantile_product = "mean")
 
 
 # 5th Percentile
-projection_05 <- time_period_quantile(time_period = "projection",
-                                     time_period_collection = projection_bias_corr, 
-                                     quantile_product = "5th")
+projection_05 <- time_period_quantile(
+  time_period = "projection",
+  time_period_collection = projection_bias_corr, 
+  quantile_product = "5th")
 
 
 # 9th Percentile
-projection_95 <- time_period_quantile(time_period = "projection",
-                                    time_period_collection = projection_bias_corr, 
-                                    quantile_product = "95th")
+projection_95 <- time_period_quantile(
+  time_period = "projection",
+  time_period_collection = projection_bias_corr, 
+  quantile_product = "95th")
 
 
 # clean up
