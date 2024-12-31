@@ -8,78 +8,6 @@ library(sdmTMB)
 library(sdmTMBextra)
 library(ggeffects)
 
-# Scaling/unscaling function to facilitate model convergence
-set.seed(13)
-x <- rnorm(100)
-
-scaled_x <- scale(x)
-unscaled_x <- as.numeric((scaled_x * attr(scaled_x, "scaled:scale")) + attr(scaled_x, "scaled:center"))
-all.equal(x, unscaled_x)
-
-scaled<- function(x, center, scale){
-  (x - center) / scale
-}
-
-unscale <- function(scaled_x, center, scale) {
-  if (is.null(attr(scaled_x, "scaled:scale")) == F) {
-    # (scaled_x * sd) + m
-    (scaled_x * attr(scaled_x, "scaled:scale")) + attr(scaled_x, "scaled:center")
-  }
-  if (is.null(attr(scaled_x, "scaled:scale")) == T) {
-    (scaled_x * scale) + center
-  }
-}
-
-unscale_aja <- function(scaled_x, orig_mean, orig_sd) {
-  (scaled_x * orig_sd) + orig_mean
-}
-
-# Function to plot smooth effects
-plot_smooths<- function(mod_fit, n_preds = 100, y_lab = "Predicted Biomass", rescale_means = NULL, rescale_sds = NULL){
-  # Get smooth terms from the model
-  formula_terms <- as.character(mod_fit$smoothers$labels)  # Right-hand side of formula
-  
-  # Clean up to get just the variable names
-  smooth_terms <- gsub("\\)", "", gsub("s\\(", "", formula_terms))
-  
-  # Create prediction data frame for all smooth terms
-  all_preds <- lapply(smooth_terms, function(term) {
-    # Generate term string
-    term_string <- paste0(term, paste0(" [n=", n_preds, "]"))
-
-    # Pass to ggpredict
-    pred <- ggpredict(mod_fit, terms = term_string)
-
-    # Unscale for plotting?
-    pred$smooth_term <- term
-    if(!is.null(rescale_means) & !is.null(rescale_sds)){
-      pred$x_raw <- unscale_aja(pred$x, rescale_means[[gsub("_scaled", "", term)]], rescale_sds[[gsub("_scaled", "", term)]])
-    }
-    pred$smooth_term <- term
-    return(pred)
-  })
-  
-  # Combine all predictions
-  pred_data <- data.frame(bind_rows(all_preds))
-
-  # Create the plot
-  p <- ggplot() +
-    geom_ribbon(data = pred_data, aes(x = x_raw, ymin = conf.low, ymax = conf.high, fill = smooth_term), alpha = 0.1, color = NA) +
-    geom_line(data = pred_data, aes(x = x_raw, y = predicted, color = smooth_term), linewidth = 1) +
-    labs(
-      x = "Predictor value",
-      y = y_lab
-    ) +
-    theme(
-      text = element_text(size = 14),
-      legend.position = "bottom"
-    ) +
-    facet_wrap(~ gsub("_scaled", "", smooth_term), scales = "free_x") +
-    theme_bw()
-
-  return(p)
-}
-
 # Base map land info
 region <- ne_countries(scale = "medium", continent = "North America", returnclass = "sf")
 states <- ne_states(country = c("United States of America", "Canada"), returnclass = "sf")
@@ -88,27 +16,29 @@ lat_lims <- c(35.2, 48)
 lon_lims<- c(-76, -56.2)
 
 #----------------------------------
-## Get data
+## Get juvenile data
 #----------------------------------
-all_mod_data<- readRDS(here::here("Data/Derived/all_model_data.rds"))
+
+# Focus on just lobster, and during GLORYs time series
+year_min <- 1993
+year_max <- 2023
+
+df<- readRDS(here::here("Data/Derived/all_model_data_juvenile.rds")) %>%
+  dplyr::filter(between(year, year_min, year_max))
+
 # all(all_mod_data$trawl_id %in% env_tows)
 # all(env_tows %in% all_mod_data$trawl_id)
 # Every tow should have two observations and the unique tows should be the same as the ones in the environmental data
 t<- table(all_mod_data$trawl_id)
 # length(unique(all_mod_data$trawl_id)) == length(unique(env_data$ID))
 
-# Focus on just lobster, and during GLORYs time series
-year_min <- 1993
-year_max <- 2023
+df %>% 
+  group_by(survey) %>% 
+  count()
 
-red_mod_data <- all_mod_data |>
-  dplyr::filter(life_class == "juvenile") |>
-  dplyr::filter(between(year, year_min, year_max)) 
-
-summary(red_mod_data)
 
 # Still some weird NA biomass values to figure out, dropping those for now
-mod_data<- red_mod_data |>
+mod_data<- df |>
   drop_na(total_biomass)
 summary(mod_data)
 
@@ -177,7 +107,7 @@ mod_data <- mod_data %>%
 
 # Create sdmTMB mesh -- check out Owen Liu's code here (https://github.com/owenrliu/eDNA_eulachon/blob/63a1b4d21fa4ffbc629cbb0657bc032998565f17/scripts/eulachon_sdms.Rmd#L217) for more ideas? This was taking forever, and no idea why...
 # sdmTMB_mesh<- sdmTMB::make_mesh(mod_data, xy_cols = c("longitude", "latitude"), type = "cutoff", cutoff = 100, fmesher_func = fmesher::fm_mesh_2d_inla)
-sdmTMB_mesh <- sdmTMB::make_mesh(mod_data, xy_cols = c("longitude", "latitude"), n_knots = 200, type = "kmeans")
+sdmTMB_mesh <- sdmTMB::make_mesh(mod_data, xy_cols = c("X", "Y"), n_knots = 200, type = "kmeans")
 # sdmTMB_mesh<- readRDS("~/Desktop/mesh_20241026_170037.rds")
 plot(sdmTMB_mesh)
 
@@ -279,6 +209,8 @@ fit0_preds <- fit0_preds |>
   mutate("Pred_Map" = map2(data, Year_Season, map_nested))
 
 fit0_preds$Pred_Map[[50]]
+fit0_preds$Pred_Map[[36]]
+fit0_preds$Pred_Map[[93]]
 
 #----------------------------------
 ## Fit model 1
@@ -488,5 +420,111 @@ tidy(fit5, effects = "ran_pars")
 sanity(fit5)
 
 write_rds(fit5, here::here("Juve_Fit5.rds"), compress = "gz")
+
+#----------------------------------
+## Fit model 6
+#----------------------------------
+#| label: Exclude space-invariant temporal autocorrelation.
+#| include: false
+#| echo: false
+#| warning: false
+
+#|
+
+tictoc::tic()
+fit6 <- sdmTMB(
+  total_biomass ~ factor(season) + factor(survey) + s(Depth, k = 4) + s(BT_seasonal, k = 4),
+  control = sdmTMBcontrol(map = list(ln_tau_Z = tau_Z_map)),
+  data = mod_data,
+  spatial = "on",
+  # offset = dat_mod$swept,
+  anisotropy = TRUE,
+  share_range = FALSE,
+  spatiotemporal = "ar1",
+  spatial_varying = svc,
+  time = "year_season_int",
+  # time_varying = ~ 0 + year_season_int,
+  # time_varying_type = "ar1",
+  extra_time = time_ints,
+  mesh = sdmTMB_mesh,
+  family = tweedie(),
+  silent = FALSE,
+  do_fit = TRUE
+)
+tictoc::toc()
+
+tidy(fit6, effects = "fixed")
+tidy(fit6, effects = "ran_pars")
+sanity(fit6)
+
+write_rds(fit6, here::here("Juve_Fit6.rds"), compress = "gz")
+
+# Predict
+
+pred_data <- readRDS(here::here("Data/Derived/pred_glorys_with_covs.rds"))
+
+# Now for the model matrix trickery
+mm_season <- model.matrix(~ 0 + factor(season), data = pred_data)
+# mm_year <- model.matrix(~ 0 + factor(est_year), data = dat) 
+
+pred_data <- readRDS(here::here("Data/Derived/pred_glorys_with_covs.rds")) |>
+  filter(between(year, year_min, year_max) & season %in% c("Spring", "Summer", "Fall")) |>
+  mutate(
+    Depth_scaled = (Depth - column_means["Depth"]) / column_sds["Depth"],
+    BT_seasonal_scaled = (BT_seasonal - column_means["BT_seasonal"]) / column_sds["BT_seasonal"]
+  ) |>
+  mutate(season = factor(season, levels = seasons),
+         year_season_fac = factor(paste(year, season, sep = "_"), levels = time_fac_levels),
+         year_season_int = as.numeric(year_season_fac)) %>%
+  dplyr::select(!contains("factor")) %>%
+  cbind(mm_season) %>%
+  as_tibble() %>%
+  add_utm_columns(ll_names = c("x", "y")) %>%
+  mutate(survey = "ME_NH") %>%
+  drop_na()
+
+fit6_preds <- predict(fit6, newdata = pred_data, type = "response", se = FALSE)
+str(fit6_preds)
+
+# Nest and map
+fit6_preds <- fit6_preds |>
+  group_by(season, year, Year_Season, Date) |>
+  nest()
+
+map_nested <- function(pred_df, time, region_use = region, states_use = states, xlim_use = lon_lims, ylim_use = lat_lims) {
+  ggplot() +
+    geom_raster(data = pred_df, aes(x = x, y = y, fill = est)) +
+    geom_sf(data = region_use, fill = "#f0f0f0") +
+    geom_sf(data = states_use, color = "dark gray", lwd = 0.2, na.rm = TRUE) +
+    coord_sf(xlim = xlim_use, ylim = ylim_use, expand = FALSE) +
+    scale_fill_viridis_c(name = "Predicted biomass", trans = "log") +
+    theme_minimal() +
+    labs(
+      fill = "Predicted biomass",
+      title = time
+    )
+}
+
+fit6_preds <- fit6_preds |>
+  mutate("Pred_Map" = map2(data, Year_Season, map_nested))
+
+cowplot::plot_grid(fit6_preds$Pred_Map[[1]], 
+                   fit6_preds$Pred_Map[[10]], 
+                   fit6_preds$Pred_Map[[20]], 
+                   fit6_preds$Pred_Map[[30]], 
+                   fit6_preds$Pred_Map[[40]], 
+                   fit6_preds$Pred_Map[[50]], 
+                   fit6_preds$Pred_Map[[60]],
+                   fit6_preds$Pred_Map[[70]], 
+                   fit6_preds$Pred_Map[[80]], 
+                   fit6_preds$Pred_Map[[90]], ncols = 3, nrows = 3)
+
+
+
+
+
+
+
+
 
 

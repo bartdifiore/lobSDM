@@ -58,25 +58,25 @@ pred_df <- rbind(ma, dfo, nefsc, me) %>%
 
 write_rds(pred_df, "Data/Derived/combined_and_filtered_predators.rds", compress = "gz")
 
-# Quick plot?
-potentials_df <- potentials_df |>
-  mutate_if(is.character, to_sentence_case) |>
-  mutate_if(is.factor, ~ to_sentence_case(as.character(.))) |>
-  select(COMNAME, SCINAME)
-
-pred_df <- pred_df |>
-  left_join(potentials_df, by = c("scientific_name" = "SCINAME"))
-head(pred_df)
-
-# Species, survey, year, season, total biomass?
-pred_summ_plot <- pred_df |>
-  mutate(total_weight_at_length = number_at_length*weight_at_length) |>
-  group_by(COMNAME, survey, year, season) |>
-  summarize("total_biomass" = sum(total_weight_at_length))
-
-ggplot(pred_summ_plot, aes(x = year, y = total_biomass, fill = COMNAME)) +
-  geom_area() +
-  facet_wrap(~season)
+# # Quick plot?
+# potentials_df <- potentials_df |>
+#   mutate_if(is.character, to_sentence_case) |>
+#   mutate_if(is.factor, ~ to_sentence_case(as.character(.))) |>
+#   select(COMNAME, SCINAME)
+# 
+# pred_df <- pred_df |>
+#   left_join(potentials_df, by = c("scientific_name" = "SCINAME"))
+# head(pred_df)
+# 
+# # Species, survey, year, season, total biomass?
+# pred_summ_plot <- pred_df |>
+#   mutate(total_weight_at_length = number_at_length*weight_at_length) |>
+#   group_by(COMNAME, survey, year, season) |>
+#   summarize("total_biomass" = sum(total_weight_at_length))
+# 
+# ggplot(pred_summ_plot, aes(x = year, y = total_biomass, fill = COMNAME)) +
+#   geom_area() +
+#   facet_wrap(~season)
 
 #----------------------------------
 ## Load, classify and explore lobster data

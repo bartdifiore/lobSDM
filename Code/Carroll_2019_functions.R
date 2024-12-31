@@ -11,6 +11,11 @@ area_overlapfn <- function(prey, pred, area){
   sum(area[pred > 0 & prey > 0], na.rm = T)/total_area
 }
 
+area_overlapfn_local <- function(prey, pred, area){
+  area[pred > 0 & prey > 0]/area
+}
+
+
 ## range overlap
 ## for binary data
 ## measures the proportion of one species range where the other co-occurs
@@ -44,8 +49,7 @@ biomass_overlapfn <- function(prey, pred) {
 ## Hurlbert's overlap
 ## measures interspecific encounter rate between predator and prey
 hurlbert_overlapfn <- function(prey, pred, area) {
-  if(FALSE)
-    area_occupied <- sum(area[pred > 0 | prey > 0], na.rm = T)
+  area_occupied <- sum(area[pred > 0 | prey > 0], na.rm = T)
   p_prey <- prey/sum(prey, na.rm = T)
   p_pred <- pred/sum(pred, na.rm = T)
   sum((p_pred*p_prey)/(area/area_occupied), na.rm = T)
