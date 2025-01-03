@@ -1,0 +1,518 @@
+---
+title: "Ensemble Grids for GLORYS Bias Corrections"
+author: "Adam Kemberling"
+description: | 
+  Creating CMIP6 Ensembles using GLORYs Bias-Corrected Models
+date: "Updated on: `r Sys.Date()`"
+format: 
+  html:
+    code-fold: true
+    code-tools: true
+    df-print: kable
+    self-contained: true
+execute: 
+  echo: true
+  warning: false
+  message: true
+  fig.align: "center"
+  comment: ""
+params: 
+  experiment: 
+      label: "Select CMIP experiment"
+      value: "ssp5_85"
+      input: select
+      choices: ["ssp1_26", "ssp5_85"]
+---
+
+## Creating GLORYS Bias-Corrected Ensembles
+
+The processsing of bias-corrected datasets using GLORYS reanalysis data has been done in python in \`Code/CMIP_GLORYs_Bias_Corrections.ipynb.
+
+The end product of that notebook is numerous Netcdf files, each containing bias-corrected data for a variable (surface temperature, botttom temperature, surface salinity, bottom salinity) spanning a historical (1950-2010) and projection (2010-2100) period. Each file is specific to a particular experiment_id detailing the institution that ran the model and the details on the SSP scenario and forcings for it **FIX THIS DESCRIPTION TO BE ACCURATE ABOUT THE NAMES experiement id etc.**
+
+```{r}
+
+###__ Packages  ####
+library(here)
+library(ncdf4)
+library(RNetCDF)
+library(raster)
+library(janitor)
+library(gmRi)
+library(patchwork)
+library(tidyverse)
+library(knitr)
+
+# Load the build code and stratification function
+res_path    <- cs_path("RES_Data")
+cmip_path   <- cs_path("RES_Data", "CMIP6")
+
+#### Set theme  ####
+theme_set(theme_minimal())
+
+#  color palette for quick raster displays
+temp_pal <- rev(RColorBrewer::brewer.pal(n = 10, name = "RdBu"))
+
+# ####  Functions  ####
+# source(here::here("Code/sdm_workflow_funs.R"))
+
+
+# Set the processing options
+#cmip_var <- "surf_temp"
+cmip_var <- "bot_temp"
+cmip_scenario <- "SSP5_85"
+```
+
+Using the individuals experimental runs, and collecting them as an ensemble of multiple models, we can establish a range of expectations for different ssp scenarios.
+
+```{r}
+# Folder to the variable, based on ssp scenario
+models_path <- cs_path(
+  box_group = "res", 
+  subfolder = str_c("CMIP6", cmip_scenario, "GLORYS_bias_corrected/IndividualModels", cmip_var, sep = "/"))
+
+
+
+# load all the files in a list by experiment id
+model_files <- list.files(models_path, pattern = ".nc", full.names = T)
+model_ids <- list.files(models_path, pattern = ".nc") %>% str_remove_all(".nc")
+model_files <- setNames(model_files, model_ids)
+
+# Load them as raster stacks
+model_stacks <- map(model_files, function(x){raster::stack(x)})
+
+```
+
+Once we have a list containing the bias corrected data for each model, we can do some checks to verify that the dates are loaded properly. This ensures that grouping/subsetting for the ensemble steps work properly.
+
+The following table shows the start and end dates for each bias correction stack:
+
+```{r}
+
+# check that the dates are okay
+model_stacks %>% 
+  map_dfr(.f = function(x){
+    data.frame(
+      "start_date" = names(x)[1],
+      "end_date" = names(x)[length(names(x))])}, 
+    .id = "Model ID") %>% 
+  gt::gt()
+
+```
+
+These should be consistent in start and end date, as well as the formatting. The year and month information from these names will be used to align the datasets at each timestep.
+
+```{r}
+#| label: make date vector
+#| eval: true
+
+# Build a vector of year-months
+
+  
+# Year and month name matching
+time_steps <- map(
+  .x = str_pad(c(1:12), 2, pad = "0", side = "left"), 
+  .f = ~paste0("X", c(1950:2100), ".", .x)) %>% 
+  unlist() %>% sort()
+
+# output names
+new_names <- str_c(time_steps,  ".15")
+  
+
+# # Why are there two for these months?
+# names(model_stacks$thetao_NESM3_r1i1p1f1)[[1430]]
+# names(model_stacks$thetao_NESM3_r1i1p1f1)[[1431]]
+# plot(model_stacks$thetao_NESM3_r1i1p1f1[[1430]], main = "X2069.03.15.1")
+# plot(model_stacks$thetao_NESM3_r1i1p1f1[[1431]], main = "X2069.03.15.2")
+
+# which(
+#   str_sub(names(model_stacks$thetao_NESM3_r1i1p1f1), 1, 8) == "X2069.03"
+#   )[[1]]
+# 
+# # Trouble here, why at this time step?
+# which(names(model_stacks$thetao_NESM3_r1i1p1f1) %>% str_sub(1,8) == "X2069.03")
+
+
+
+
+```
+
+### Processing Ensemble Statistic Stacks
+
+For each timestep we match up the individual models that have been bias corrected. We then take some statistic (mean, 5th percentile, 95th percentile) at each cell and return that as a new grid. These new grids are then stacked together by date to produce a stack for the ensemble statistic.
+
+```{r}
+#| label: process ensemble means
+#| eval: false
+
+
+# Map through the time steps getting the desired quantile at each step
+ensemble_means <- map(time_steps, function(time_step){
+  
+  # Map over the year-month vector
+  # Pull the time step from each model whose name matches it
+  timestep_list <- map(
+    .x = model_stacks, 
+    .f = function(.x){
+      # Cut off day info
+      model_dates <- names(.x) %>% str_sub(1, 8)
+      date_idx <- which(model_dates == time_step)
+      if(length(date_idx) > 1){date_idx <- date_idx[1]}
+    
+      # Pull that timestep
+      # Use the [1] in case there are duplicates
+      .x[[ date_idx ]]})
+  
+  # Assemble them in a stack
+  timestep_stack <- raster::stack(timestep_list)
+     
+  # Grab the desired mean/quantile estimate for that stack
+  timestep_mean <- calc(
+    x = timestep_stack, 
+    fun = mean,  
+    na.rm = T)
+  return(timestep_mean)
+  }) %>% 
+  raster::stack() %>% # Stack those resulting rasters themselves
+  setNames(new_names) # Set the layer names
+
+
+
+# Stack everything back together, set names
+plot(
+  ensemble_means$X2020.05.15, 
+  main = str_c("Ensemble Mean ", cmip_var, " 2020-05"), 
+  col = temp_pal)
+```
+
+```{r}
+#| label: process 5th percentile
+#| eval: false
+
+# Map through the time steps getting the desired quantile at each step
+ensemble_5th <- map(
+  .x = time_steps,          
+  .f = function(time_step){
+    
+    # Pull the time step from each model
+    timestep_list <- map(
+      .x = model_stacks, 
+      .f = function(.x){
+        # Cut off day info
+        model_dates <- names(.x) %>% str_sub(1, 8)
+        date_idx <- which(model_dates == time_step)
+        if(length(date_idx) > 1){date_idx <- date_idx[1]}
+        
+        # Pull that timestep
+        .x[[date_idx]]})
+    
+    # Assemble them in a stack
+    timestep_stack <- raster::stack(timestep_list)
+       
+    # Grab the desired mean/quantile estimate
+    timestep_quantile <- calc(
+      timestep_stack, 
+      function(rasters){
+        quantile(rasters, probs = 0.05, na.rm = T)})
+    
+    return(timestep_quantile)
+}) %>% 
+      raster::stack() %>% 
+      setNames(new_names) # Set the layer names
+
+plot(
+  ensemble_5th$X2020.05.15, 
+  main = str_c("Ensemble 5th Percentile ", cmip_var, " 2020-05"), 
+  col = temp_pal)
+```
+
+```{r}
+#| label: process 95th percentile
+#| eval: false
+
+
+# Map through the time steps getting the desired quantile at each step
+ensemble_95th <- map(
+  .x = time_steps, 
+  .f = function(time_step){
+    
+    # Pull the time step from each model
+    timestep_list <- map(
+      .x = model_stacks, 
+      .f = function(.x){
+        # Cut off day info
+        model_dates <- names(.x) %>% str_sub(1, 8)
+        date_idx <- which(model_dates == time_step)
+        if(length(date_idx) > 1){date_idx <- date_idx[1]}
+        
+        # Pull that timestep
+        .x[[date_idx]]})
+    
+    # Assemble them in a stack
+    timestep_stack <- raster::stack(timestep_list)
+       
+    # Grab the desired mean/quantile estimate
+    timestep_quantile <- calc(
+      timestep_stack, 
+      function(rasters){
+        quantile(rasters, probs = 0.95, na.rm = T)})
+    
+    return(timestep_quantile)
+}) %>% 
+      raster::stack() %>% 
+      setNames(new_names) # Set the layer names
+
+
+plot(
+  ensemble_95th$X2020.05.15, 
+  main = str_c("Ensemble 95th Percentile ", cmip_var, " 2020-05"), 
+  col = temp_pal)
+
+```
+
+### Saving Ensemble Grids
+
+```{r}
+#| label: export ensemble statistics
+#| eval: false
+
+
+## Export The Files 
+
+
+# Path to the bias correction folder
+var_path <- cs_path(
+  box_group = "res", 
+  subfolder = str_c("CMIP6", cmip_scenario, "GLORYS_bias_corrected/EnsembleData", sep = "/"))
+
+# # Save as NetCDF - need to figure this out b/c .grd is dumb
+# 
+# # File Names
+# terra::writeCDF(
+#   ensemble_5th, 
+#   paste0(
+#     var_path, 
+#     cmip_var,"_", "_GLORYs_bias_corrected_5thpercentile.nc"), overwrite = T)
+
+# File Names
+writeRaster(
+  ensemble_5th, 
+  str_c(
+    var_path, 
+    cmip_var,"_", "_GLORYs_bias_corrected_5thpercentile.grd"), 
+  overwrite = T)
+writeRaster(
+  ensemble_means, 
+  str_c(
+    var_path, 
+    cmip_var,"_", "_GLORYs_bias_corrected_mean.grd"), 
+  overwrite = T)
+writeRaster(
+  ensemble_95th, 
+    str_c(
+      var_path, 
+      cmip_var,"_", "_GLORYs_bias_corrected_95thpercentile.grd"), 
+  overwrite = T)
+
+
+
+```
+
+## Regional Projections
+
+From the ensemble mean/5th/95th we can get scenario trajectories for regions of interest. The following map shows the areas that we have processed timeseries for:
+
+```{r}
+#| label: load pre-processed ensembles
+
+path_5th <- str_c(
+  var_path, 
+  cmip_var,"_", "_GLORYs_bias_corrected_5thpercentile.grd")
+path_95th <- str_c(
+  var_path, 
+  cmip_var,"_", "_GLORYs_bias_corrected_95thpercentile.grd")
+path_mean <- str_c(
+  var_path, 
+  cmip_var,"_", "_GLORYs_bias_corrected_mean.grd")
+
+ensemble_5th <- raster::stack(path_5th)
+ensemble_means <- raster::stack(path_mean)
+ensemble_95th <- raster::stack(path_95th)
+
+
+```
+
+```{r}
+library(sf)
+library(rnaturalearth)
+
+
+
+# Coastlines
+world       <- ne_countries(scale = "medium", returnclass = "sf")
+new_england <- ne_states("united states of america", returnclass = "sf")
+canada      <- ne_states("canada", returnclass = "sf")
+greenland   <- ne_states(country = "greenland", returnclass = "sf")
+
+
+# NMFS Trawl Regions
+region_groups <- c("nelme_regions", "gmri_sst_focal_areas", "lme", "nmfs_trawl_regions")
+region_lookup <- map(region_groups, function(region_group){
+    mask_details <- get_timeseries_paths(region_group, box_location = "cloudstorage") }) %>% 
+  setNames(region_groups)
+trawl_gb  <- read_sf(region_lookup$nmfs_trawl_regions$georges_bank$shape_path) 
+trawl_gom <- read_sf(region_lookup$nmfs_trawl_regions$gulf_of_maine$shape_path)
+trawl_mab <- read_sf(region_lookup$nmfs_trawl_regions$mid_atlantic_bight$shape_path)
+trawl_sne <- read_sf(region_lookup$nmfs_trawl_regions$southern_new_england$shape_path)
+
+# Load all the strata and just filter out the crap ones
+trawl_full <- read_sf(str_c(res_path, "Shapefiles/BottomTrawlStrata/BTS_Strata.shp"))  %>% 
+  clean_names() %>% 
+  filter(strata >= 01010 ,
+         strata <= 01760,
+         strata != 1310,
+         strata != 1320,
+         strata != 1330,
+         strata != 1350,
+         strata != 1410,
+         strata != 1420,
+         strata != 1490) 
+
+# Union on strata
+trawl_gom  <- st_union(trawl_gom)  %>% st_as_sf()
+trawl_gb   <- st_union(trawl_gb)   %>% st_as_sf()
+trawl_mab  <- st_union(trawl_mab)  %>% st_as_sf()
+trawl_sne  <- st_union(trawl_sne)  %>% st_as_sf()
+trawl_full <- st_union(trawl_full) %>% st_as_sf()
+
+
+# DFO Data
+dfo_path <- cs_path(box_group =  "Mills Lab", subfolder = "Projects/DFO_survey_data/strata_shapefiles")
+dfo_area <- read_sf(str_c(dfo_path, "MaritimesRegionEcosystemAssessmentBoundary.shp"))
+
+
+# set overall zoom for maps
+xlimz <- c(-76, -57)
+ylimz <- c(35, 48)
+
+# base map
+ggplot() +
+  geom_sf(data = new_england, size = 0.3) +
+  geom_sf(data = canada, size = 0.3) +
+  geom_sf(data = greenland, size = 0.3) +
+  geom_sf(data = trawl_full, aes(fill = "US Survey Area"), alpha = 0.2) +
+  geom_sf(data = trawl_gom, aes(fill = "Gulf of Maine Strata"), alpha = 0.2) +
+  geom_sf(data = dfo_area, aes(fill = "Canadian Survey Area"), alpha = 0.2) +
+  theme(legend.position = "bottom") +
+  coord_sf(xlim = xlimz, ylim = ylimz) +
+  guides(color = guide_legend(title.position = "top", title.hjust = 0.5)) +
+  labs(color = "", 
+       fill = "")
+
+
+
+
+```
+
+```{r}
+# Masking function for an area
+mask_shape <- function(in_ras, in_mask){
+  
+  # Check extent for to make sure they overlap
+  in_ext <- extent(in_ras)
+  if(in_ext@xmax > 180){
+    out_extent <- in_ext - c(360, 360, 0, 0)
+    in_ras <- setExtent(in_ras, out_extent)
+  }
+  
+  # crop+mask
+  r1 <- raster::crop(x = in_ras, y = in_mask)
+  r2 <- raster::mask(x = r1, mask = in_mask)
+  return(r2)}
+
+
+# Function to turn it into a dataframe using cellstats
+timeseries_from_mask <- function(ras_in, var_label){
+  ts <- cellStats(ras_in, mean, na.rm = T)
+  ts <- ts %>% 
+    as.data.frame() %>% 
+    rownames_to_column() %>% 
+    setNames(c("date", var_label)) %>% 
+    mutate(date = str_remove(date, "X"),
+           date = str_replace_all(date, "[.]", "-"))
+  
+  # Check the length of the names, repair with 15th of month when missing
+  date_len <- str_length(ts$date[1])
+  if(date_len == 7){
+    ts <- ts %>% 
+      mutate(date = str_c(date, "-15"),
+             date = as.Date(date))
+  } else{
+    ts <- mutate(ts, 
+                 date = as.Date(date))
+  }
+  
+  return(ts)
+}
+```
+
+```{r}
+# Process Regional Timeseries
+
+
+# Put observed variables in a list
+ensemble_stacks <- list(
+  ensemble_mean  = ensemble_means,
+  ensemble_5th   = ensemble_5th,
+  ensemble_95th  = ensemble_95th)
+
+# Replace observed vars with the percentiles
+
+
+# Now mask them all and get timeseries
+var_label <- cmip_var
+masked_ensembles <- map_dfr(
+  ensemble_stacks, 
+  function(ras_to_crop){
+  
+  # Mask and get timeseries
+  masked_gom   <- mask_shape(
+    in_ras = ras_to_crop, 
+    in_mask = trawl_gom)
+  masked_trawl <- mask_shape(
+    ras_to_crop, 
+    in_mask = trawl_full)
+   masked_dfo   <- mask_shape(
+     ras_to_crop, 
+     in_mask = dfo_area)
+  
+  masked_gom   <- timeseries_from_mask(
+    masked_gom, 
+    var_label = var_label)
+  masked_trawl <- timeseries_from_mask(
+    masked_trawl, 
+    var_label = var_label)
+  masked_dfo   <- timeseries_from_mask(
+    masked_dfo, 
+    var_label = var_label)
+    
+  # Put in list
+  list(
+    "Gulf of Maine Strata"   = masked_gom,
+    "US Survey Area"         = masked_trawl,
+    "Canadian Survey Area"   = masked_dfo) %>% 
+    bind_rows(.id = "area")
+  
+}, .id = "ensemble_stat") 
+
+```
+
+```{r}
+#| label: plot regional uncertainty
+
+ggplot(masked_ensembles) +
+  geom_line(aes(date, y = bot_temp, color = ensemble_stat), alpha = 0.8, linewidth = 0.5) +
+  facet_wrap(~area, ncol = 1)
+```
+
+### Saving Region of Interest Trajectories

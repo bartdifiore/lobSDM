@@ -40,3 +40,6 @@
 20241212 141827.492 ERROR            PET0     2  (69.968134,  62.114845)  (0.160208, 0.439406, 0.883887)
 20241212 141827.492 ERROR            PET0     3  (70.031866,  62.114845)  (0.159719, 0.439584, 0.883887)
 20241212 141827.492 ERROR            PET0 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+20241231 112049.900 ERROR            PET0 ESMCI_VM.C:2168 ESMCI::VM::getCurrent() Internal error: Bad condition  - - Could not determine current VM
+20241231 112455.492 ERROR            PET0 ESMCI_VM.C:2168 ESMCI::VM::getCurrent() Internal error: Bad condition  - - Could not determine current VM
+20241231 181313.174 ERROR            PET0 ESMCI_VM.C:2168 ESMCI::VM::getCurrent() Internal error: Bad condition  - - Could not determine current VM
