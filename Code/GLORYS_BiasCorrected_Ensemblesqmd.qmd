@@ -42,6 +42,9 @@ library(gmRi)
 library(patchwork)
 library(tidyverse)
 library(knitr)
+library(sf)
+library(rnaturalearth)
+
 
 # Load the build code and stratification function
 res_path    <- cs_path("RES_Data")
@@ -58,9 +61,15 @@ temp_pal <- rev(RColorBrewer::brewer.pal(n = 10, name = "RdBu"))
 
 
 # Set the processing options
-#cmip_var <- "surf_temp"
+
+# variable
+# cmip_var <- "surf_temp"
 cmip_var <- "bot_temp"
-cmip_scenario <- "SSP5_85"
+
+
+# SSP scenario
+#cmip_scenario <- "SSP5_85"
+cmip_scenario <- "SSP1_26"
 ```
 
 Using the individuals experimental runs, and collecting them as an ensemble of multiple models, we can establish a range of expectations for different ssp scenarios.
@@ -118,7 +127,7 @@ time_steps <- map(
 # output names
 new_names <- str_c(time_steps,  ".15")
   
-
+# debugging, duplicate year-month cases
 # # Why are there two for these months?
 # names(model_stacks$thetao_NESM3_r1i1p1f1)[[1430]]
 # names(model_stacks$thetao_NESM3_r1i1p1f1)[[1431]]
@@ -131,8 +140,6 @@ new_names <- str_c(time_steps,  ".15")
 # 
 # # Trouble here, why at this time step?
 # which(names(model_stacks$thetao_NESM3_r1i1p1f1) %>% str_sub(1,8) == "X2069.03")
-
-
 
 
 ```
@@ -181,7 +188,7 @@ ensemble_means <- map(time_steps, function(time_step){
 # Stack everything back together, set names
 plot(
   ensemble_means$X2020.05.15, 
-  main = str_c("Ensemble Mean ", cmip_var, " 2020-05"), 
+  main = str_c(cmip_scenario, " Ensemble Mean ", cmip_var, " 2020-05"), 
   col = temp_pal)
 ```
 
@@ -222,7 +229,7 @@ ensemble_5th <- map(
 
 plot(
   ensemble_5th$X2020.05.15, 
-  main = str_c("Ensemble 5th Percentile ", cmip_var, " 2020-05"), 
+  main = str_c(cmip_scenario, " Ensemble 5th Percentile ", cmip_var, " 2020-05"), 
   col = temp_pal)
 ```
 
@@ -265,7 +272,7 @@ ensemble_95th <- map(
 
 plot(
   ensemble_95th$X2020.05.15, 
-  main = str_c("Ensemble 95th Percentile ", cmip_var, " 2020-05"), 
+  main = str_c(cmip_scenario, " Ensemble 95th Percentile ", cmip_var, " 2020-05"), 
   col = temp_pal)
 
 ```
@@ -292,60 +299,38 @@ var_path <- cs_path(
 #   ensemble_5th, 
 #   paste0(
 #     var_path, 
-#     cmip_var,"_", "_GLORYs_bias_corrected_5thpercentile.nc"), overwrite = T)
+#     cmip_var, "_GLORYs_bias_corrected_5thpercentile.nc"), overwrite = T)
 
 # File Names
 writeRaster(
   ensemble_5th, 
   str_c(
     var_path, 
-    cmip_var,"_", "_GLORYs_bias_corrected_5thpercentile.grd"), 
+    cmip_var, "_GLORYs_bias_corrected_5thpercentile.grd"), 
   overwrite = T)
 writeRaster(
   ensemble_means, 
   str_c(
     var_path, 
-    cmip_var,"_", "_GLORYs_bias_corrected_mean.grd"), 
+    cmip_var, "_GLORYs_bias_corrected_mean.grd"), 
   overwrite = T)
 writeRaster(
   ensemble_95th, 
     str_c(
       var_path, 
-      cmip_var,"_", "_GLORYs_bias_corrected_95thpercentile.grd"), 
+      cmip_var, "_GLORYs_bias_corrected_95thpercentile.grd"), 
   overwrite = T)
 
 
 
 ```
 
-## Regional Projections
+## Regional Projections (Timeseries)
 
 From the ensemble mean/5th/95th we can get scenario trajectories for regions of interest. The following map shows the areas that we have processed timeseries for:
 
 ```{r}
-#| label: load pre-processed ensembles
-
-path_5th <- str_c(
-  var_path, 
-  cmip_var,"_", "_GLORYs_bias_corrected_5thpercentile.grd")
-path_95th <- str_c(
-  var_path, 
-  cmip_var,"_", "_GLORYs_bias_corrected_95thpercentile.grd")
-path_mean <- str_c(
-  var_path, 
-  cmip_var,"_", "_GLORYs_bias_corrected_mean.grd")
-
-ensemble_5th <- raster::stack(path_5th)
-ensemble_means <- raster::stack(path_mean)
-ensemble_95th <- raster::stack(path_95th)
-
-
-```
-
-```{r}
-library(sf)
-library(rnaturalearth)
-
+#| label: load spatial assets
 
 
 # Coastlines
@@ -456,8 +441,36 @@ timeseries_from_mask <- function(ras_in, var_label){
 }
 ```
 
+### Ensemble Projections
+
 ```{r}
-# Process Regional Timeseries
+#| label: load pre-processed ensembles
+
+# Path to the bias correction folder
+var_path <- cs_path(
+  box_group = "res", 
+  subfolder = str_c("CMIP6", cmip_scenario, "GLORYS_bias_corrected/EnsembleData", sep = "/"))
+
+path_5th <- str_c(
+  var_path, 
+  cmip_var, "_GLORYs_bias_corrected_5thpercentile.grd")
+path_95th <- str_c(
+  var_path, 
+  cmip_var, "_GLORYs_bias_corrected_95thpercentile.grd")
+path_mean <- str_c(
+  var_path, 
+  cmip_var, "_GLORYs_bias_corrected_mean.grd")
+
+# Read in the ensemble statistic stacks
+ensemble_5th <- raster::stack(path_5th)
+ensemble_means <- raster::stack(path_mean)
+ensemble_95th <- raster::stack(path_95th)
+
+
+```
+
+```{r}
+#| label: Process Regional Ensemble Timeseries
 
 
 # Put observed variables in a list
@@ -511,8 +524,116 @@ masked_ensembles <- map_dfr(
 #| label: plot regional uncertainty
 
 ggplot(masked_ensembles) +
-  geom_line(aes(date, y = bot_temp, color = ensemble_stat), alpha = 0.8, linewidth = 0.5) +
+  geom_line(aes(date, y = !!sym(cmip_var), color = ensemble_stat), alpha = 0.8, linewidth = 0.5) +
   facet_wrap(~area, ncol = 1)
 ```
 
+### Saving Regional Ensemble Trajectoris
+
+```{r}
+#| label: save ensemble timeseries
+
+# Path to the bias correction folder
+ts_path <- cs_path(
+  box_group = "res", 
+  subfolder = str_c("CMIP6", cmip_scenario, "GLORYS_bias_corrected/TimeseriesData", sep = "/"))
+
+# Save name
+ensemble_ts_name <- str_c(
+  ts_path, 
+  cmip_var, "_GLORYs_bias_corrected_ensemble_mean5th95th.csv")
+
+write_csv(
+  masked_ensembles,
+  ensemble_ts_name)
+
+```
+
+### Individual Model Trajectories
+
+If we want to make a spaghetti plot we need to do all of the models independently, that looks like this:
+
+```{r}
+model_timeseries <- map_dfr(
+  .x = model_stacks,
+  .f = function(ras_to_crop){
+  
+  # Mask and get timeseries
+  masked_gom   <- mask_shape(
+    in_ras = ras_to_crop, 
+    in_mask = trawl_gom)
+  masked_trawl <- mask_shape(
+    ras_to_crop, 
+    in_mask = trawl_full)
+   masked_dfo   <- mask_shape(
+     ras_to_crop, 
+     in_mask = dfo_area)
+  
+  masked_gom   <- timeseries_from_mask(
+    masked_gom, 
+    var_label = var_label)
+  masked_trawl <- timeseries_from_mask(
+    masked_trawl, 
+    var_label = var_label)
+  masked_dfo   <- timeseries_from_mask(
+    masked_dfo, 
+    var_label = var_label)
+    
+  # Put in list
+  list(
+    "Gulf of Maine Strata"   = masked_gom,
+    "US Survey Area"         = masked_trawl,
+    "Canadian Survey Area"   = masked_dfo) %>% 
+    bind_rows(.id = "area")
+  
+}, .id = "model_id") 
+
+```
+
+```{r}
+# Make them yearly
+model_timeseries_annual <- model_timeseries %>% 
+  group_by(model_id, area, yr = year(date)) %>% 
+  summarise(!!sym(cmip_var) := mean(!!sym(cmip_var), na.rm = T),
+            .groups = "drop") %>% 
+  mutate(date = as.Date(str_c(yr, "06", "15", sep = "-")))
+
+ensemble_timeseries_annual <- masked_ensembles %>% 
+  group_by(ensemble_stat, area, yr = year(date)) %>% 
+  summarise(!!sym(cmip_var) := mean(!!sym(cmip_var), na.rm = T),
+            .groups = "drop") %>% 
+  mutate(date = as.Date(str_c(yr, "06", "15", sep = "-")))
+
+# Plot them together
+ggplot() +
+  geom_line(
+    data = model_timeseries_annual, aes(date, !!sym(cmip_var), group = model_id),
+    color = "gray50", alpha = 0.6, linewidth = 0.5
+  ) + 
+  geom_line(
+    data = ensemble_timeseries_annual, aes(date, !!sym(cmip_var), color = ensemble_stat), alpha = 1, linewidth = 1
+  ) + 
+  facet_wrap(~area, ncol =1)
+```
+
 ### Saving Region of Interest Trajectories
+
+```{r}
+#| label: save individual model trajectories
+
+
+# Path to the bias correction folder
+ts_path <- cs_path(
+  box_group = "res", 
+  subfolder = str_c("CMIP6", cmip_scenario, "GLORYS_bias_corrected/TimeseriesData", sep = "/"))
+
+# Save name
+individual_ts_name <- str_c(
+  ts_path, 
+  cmip_var, "_GLORYs_bias_corrected_ensemble_members.csv")
+
+write_csv(
+  model_timeseries,
+  individual_ts_name)
+
+```
