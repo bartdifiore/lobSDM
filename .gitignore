@@ -1,6 +1,7 @@
 # Stuff we add here
 
 .DS_Store
+Data/Derived/model_fit*
 
 # History files
 .Rhistory
@@ -231,3 +232,4 @@ Juve_YrSeasFix.rds
 Adult_Fit6_AAscaled.rds
 Adult_Fit6_AAscaled_AR1Temp.rds
 Juve_Fit6_AAscaled.rds
+.vscode/settings.json
