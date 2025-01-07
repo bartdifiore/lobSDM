@@ -68,7 +68,7 @@ for file in dsSO:
     gridfi = f'{CMIPpath}GridFiles/SODA_grid.nc'
     base_filename = os.path.basename(file)
     fileout = f'{ExperimentPath}BottomSal/tmpfiles/stGrid_{base_filename}'
-    cdo.remapdis(gridfi,  input=file, output=fileout, options='-f nc')
+    cdo.remapdis(gridfi,  input = file, output = fileout, options='-f nc')
     ds = xr.open_dataset(fileout)
     savepath = f'{ExperimentPath}BottomSal/StGrid/stGrid_{base_filename}'
     ds_cropped = ds.sel(longitude=slice(260, 320), latitude=slice(20, 70))

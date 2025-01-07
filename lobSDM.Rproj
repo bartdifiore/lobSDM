@@ -1,4 +1,5 @@
 Version: 1.0
+ProjectId: 3b3c4159-25ab-47ee-92f3-01cf123b07a7
 
 RestoreWorkspace: Default
 SaveWorkspace: Default
@@ -11,3 +12,7 @@ Encoding: UTF-8
 
 RnwWeave: Sweave
 LaTeX: pdfLaTeX
+
+PythonType: conda
+PythonVersion: 3.10.15
+PythonPath: .pixi/envs/default/bin/python3.10
