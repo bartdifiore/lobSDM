@@ -80,6 +80,8 @@ mod_data <- mod_data %>%
   sdmTMB::add_utm_columns(ll_names = c("longitude", "latitude"), units = "km") 
 
 sdmTMB_mesh <- sdmTMB::make_mesh(mod_data, xy_cols = c("X", "Y"), n_knots = 200, type = "kmeans")
+
+sdmTMB_mesh <- sdmTMB::make_mesh(mod_data, xy_cols = c("X", "Y"),cutoff = 100)
 # sdmTMB_mesh<- readRDS("~/Desktop/mesh_20241026_170037.rds")
 plot(sdmTMB_mesh)
 

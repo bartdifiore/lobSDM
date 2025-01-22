@@ -29,7 +29,7 @@ df<- readRDS(here::here("Data/Derived/all_model_data_juvenile.rds")) %>%
 # all(all_mod_data$trawl_id %in% env_tows)
 # all(env_tows %in% all_mod_data$trawl_id)
 # Every tow should have two observations and the unique tows should be the same as the ones in the environmental data
-t<- table(all_mod_data$trawl_id)
+# t<- table(all_mod_data$trawl_id)
 # length(unique(all_mod_data$trawl_id)) == length(unique(env_data$ID))
 
 df %>% 
@@ -108,6 +108,8 @@ mod_data <- mod_data %>%
 # Create sdmTMB mesh -- check out Owen Liu's code here (https://github.com/owenrliu/eDNA_eulachon/blob/63a1b4d21fa4ffbc629cbb0657bc032998565f17/scripts/eulachon_sdms.Rmd#L217) for more ideas? This was taking forever, and no idea why...
 # sdmTMB_mesh<- sdmTMB::make_mesh(mod_data, xy_cols = c("longitude", "latitude"), type = "cutoff", cutoff = 100, fmesher_func = fmesher::fm_mesh_2d_inla)
 sdmTMB_mesh <- sdmTMB::make_mesh(mod_data, xy_cols = c("X", "Y"), n_knots = 200, type = "kmeans")
+
+sdmTMB_mesh <- sdmTMB::make_mesh(mod_data, xy_cols = c("X", "Y"),cutoff = 100)
 # sdmTMB_mesh<- readRDS("~/Desktop/mesh_20241026_170037.rds")
 plot(sdmTMB_mesh)
 
@@ -433,7 +435,7 @@ write_rds(fit5, here::here("Juve_Fit5.rds"), compress = "gz")
 
 tictoc::tic()
 fit6 <- sdmTMB(
-  total_biomass ~ factor(season) + factor(survey) + s(Depth, k = 4) + s(BT_seasonal, k = 4),
+  total_biomass ~ factor(season) + factor(survey) + s(Depth_scaled, k = 4) + s(BT_seasonal_scaled, k = 4),
   control = sdmTMBcontrol(map = list(ln_tau_Z = tau_Z_map)),
   data = mod_data,
   spatial = "on",
@@ -459,66 +461,66 @@ sanity(fit6)
 
 write_rds(fit6, here::here("Juve_Fit6.rds"), compress = "gz")
 
-# Predict
-
-pred_data <- readRDS(here::here("Data/Derived/pred_glorys_with_covs.rds"))
-
-# Now for the model matrix trickery
-mm_season <- model.matrix(~ 0 + factor(season), data = pred_data)
-# mm_year <- model.matrix(~ 0 + factor(est_year), data = dat) 
-
-pred_data <- readRDS(here::here("Data/Derived/pred_glorys_with_covs.rds")) |>
-  filter(between(year, year_min, year_max) & season %in% c("Spring", "Summer", "Fall")) |>
-  mutate(
-    Depth_scaled = (Depth - column_means["Depth"]) / column_sds["Depth"],
-    BT_seasonal_scaled = (BT_seasonal - column_means["BT_seasonal"]) / column_sds["BT_seasonal"]
-  ) |>
-  mutate(season = factor(season, levels = seasons),
-         year_season_fac = factor(paste(year, season, sep = "_"), levels = time_fac_levels),
-         year_season_int = as.numeric(year_season_fac)) %>%
-  dplyr::select(!contains("factor")) %>%
-  cbind(mm_season) %>%
-  as_tibble() %>%
-  add_utm_columns(ll_names = c("x", "y")) %>%
-  mutate(survey = "ME_NH") %>%
-  drop_na()
-
-fit6_preds <- predict(fit6, newdata = pred_data, type = "response", se = FALSE)
-str(fit6_preds)
-
-# Nest and map
-fit6_preds <- fit6_preds |>
-  group_by(season, year, Year_Season, Date) |>
-  nest()
-
-map_nested <- function(pred_df, time, region_use = region, states_use = states, xlim_use = lon_lims, ylim_use = lat_lims) {
-  ggplot() +
-    geom_raster(data = pred_df, aes(x = x, y = y, fill = est)) +
-    geom_sf(data = region_use, fill = "#f0f0f0") +
-    geom_sf(data = states_use, color = "dark gray", lwd = 0.2, na.rm = TRUE) +
-    coord_sf(xlim = xlim_use, ylim = ylim_use, expand = FALSE) +
-    scale_fill_viridis_c(name = "Predicted biomass", trans = "log") +
-    theme_minimal() +
-    labs(
-      fill = "Predicted biomass",
-      title = time
-    )
-}
-
-fit6_preds <- fit6_preds |>
-  mutate("Pred_Map" = map2(data, Year_Season, map_nested))
-
-cowplot::plot_grid(fit6_preds$Pred_Map[[1]], 
-                   fit6_preds$Pred_Map[[10]], 
-                   fit6_preds$Pred_Map[[20]], 
-                   fit6_preds$Pred_Map[[30]], 
-                   fit6_preds$Pred_Map[[40]], 
-                   fit6_preds$Pred_Map[[50]], 
-                   fit6_preds$Pred_Map[[60]],
-                   fit6_preds$Pred_Map[[70]], 
-                   fit6_preds$Pred_Map[[80]], 
-                   fit6_preds$Pred_Map[[90]], ncols = 3, nrows = 3)
-
+# # Predict
+# 
+# pred_data <- readRDS(here::here("Data/Derived/pred_glorys_with_covs.rds"))
+# 
+# # Now for the model matrix trickery
+# mm_season <- model.matrix(~ 0 + factor(season), data = pred_data)
+# # mm_year <- model.matrix(~ 0 + factor(est_year), data = dat) 
+# 
+# pred_data <- readRDS(here::here("Data/Derived/pred_glorys_with_covs.rds")) |>
+#   filter(between(year, year_min, year_max) & season %in% c("Spring", "Summer", "Fall")) |>
+#   mutate(
+#     Depth_scaled = (Depth - column_means["Depth"]) / column_sds["Depth"],
+#     BT_seasonal_scaled = (BT_seasonal - column_means["BT_seasonal"]) / column_sds["BT_seasonal"]
+#   ) |>
+#   mutate(season = factor(season, levels = seasons),
+#          year_season_fac = factor(paste(year, season, sep = "_"), levels = time_fac_levels),
+#          year_season_int = as.numeric(year_season_fac)) %>%
+#   dplyr::select(!contains("factor")) %>%
+#   cbind(mm_season) %>%
+#   as_tibble() %>%
+#   add_utm_columns(ll_names = c("x", "y")) %>%
+#   mutate(survey = "ME_NH") %>%
+#   drop_na()
+# 
+# fit6_preds <- predict(fit6, newdata = pred_data, type = "response", se = FALSE)
+# str(fit6_preds)
+# 
+# # Nest and map
+# fit6_preds <- fit6_preds |>
+#   group_by(season, year, Year_Season, Date) |>
+#   nest()
+# 
+# map_nested <- function(pred_df, time, region_use = region, states_use = states, xlim_use = lon_lims, ylim_use = lat_lims) {
+#   ggplot() +
+#     geom_raster(data = pred_df, aes(x = x, y = y, fill = est)) +
+#     geom_sf(data = region_use, fill = "#f0f0f0") +
+#     geom_sf(data = states_use, color = "dark gray", lwd = 0.2, na.rm = TRUE) +
+#     coord_sf(xlim = xlim_use, ylim = ylim_use, expand = FALSE) +
+#     scale_fill_viridis_c(name = "Predicted biomass", trans = "log") +
+#     theme_minimal() +
+#     labs(
+#       fill = "Predicted biomass",
+#       title = time
+#     )
+# }
+# 
+# fit6_preds <- fit6_preds |>
+#   mutate("Pred_Map" = map2(data, Year_Season, map_nested))
+# 
+# cowplot::plot_grid(fit6_preds$Pred_Map[[1]], 
+#                    fit6_preds$Pred_Map[[10]], 
+#                    fit6_preds$Pred_Map[[20]], 
+#                    fit6_preds$Pred_Map[[30]], 
+#                    fit6_preds$Pred_Map[[40]], 
+#                    fit6_preds$Pred_Map[[50]], 
+#                    fit6_preds$Pred_Map[[60]],
+#                    fit6_preds$Pred_Map[[70]], 
+#                    fit6_preds$Pred_Map[[80]], 
+#                    fit6_preds$Pred_Map[[90]], ncols = 3, nrows = 3)
+# 
 
 
 

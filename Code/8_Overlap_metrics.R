@@ -78,9 +78,9 @@ df_overlap <- pred_yhat %>%
               rename(lobster_est = est) %>%
               st_drop_geometry)
 
-#------------------------------------------------------------
-## Estimate overlap metrics for each cell
-#------------------------------------------------------------
+#------------------------------------------------------------------------------
+## Estimate overlap metrics for each cell (e.g. do not integrate across space)
+#------------------------------------------------------------------------------
 
 grid <- df_overlap %>%
   distinct(latitude, longitude) %>%
@@ -92,13 +92,13 @@ grid <- df_overlap %>%
 
 plot(grid)
 
-df_overlap <- df_overlap %>% 
+df_overlap2 <- df_overlap %>% 
   sf::st_as_sf(coords = c("longitude", "latitude")) %>% 
   st_set_crs(4326) %>% 
   st_join(grid) %>%
   mutate(area_km2 = as.numeric(area)/1000000)
 
-overlap <- df_overlap %>%
+overlap <- df_overlap2 %>%
   group_by(id) %>%
   mutate(lobster_est_response = exp(lobster_est), 
          predator_est_response = exp(predator_est))
@@ -122,62 +122,76 @@ overlaps <- overlap %>%
   pivot_longer(cols = c(co_occurance, asymmalpha:pred_prey_ratio), names_to = "overlap_metric", values_to = "value" )
 
 
-# overlaps <- df_overlap %>%
-#   group_by(id) %>%
-#   mutate(lobster_est_response = exp(lobster_est), 
-#          predator_est_response = exp(predator_est), 
-#          lobster_bin = ifelse(lobster_est_response <= quantile(lobster_est_response, 0.05), 0, 1), 
-#          predator_bin = ifelse(predator_est_response <= quantile(predator_est_response, 0.05), 0, 1)) %>%
-#   mutate(area_overlap = area_overlapfn(prey = lobster_bin, pred = predator_bin, area = area_km2), 
-#          loc_colloc = loc_collocfn(prey = lobster_est_response, pred = predator_est_response), 
-#          asymmalpha_overlap = asymmalpha_overlapfn(prey = lobster_est_response, pred = predator_est_response), 
-#          biomass_overlap = biomass_overlapfn(prey = lobster_est_response, pred = predator_est_response), 
-#          hurlbert_overlap = hurlbert_overlapfn(prey = lobster_est_response, pred = predator_est_response, area = area_km2), 
-#          schoeners_overlap = schoeners_overlapfn(prey = lobster_est_response, pred = predator_est_response), 
-#          bhatta_coef = bhatta_coeffn(prey = lobster_est_response, pred = predator_est_response), 
-#          AB_overlap = AB_overlapfn(prey = lobster_est_response, pred = predator_est_response)) #%>%
-#   # pivot_longer(cols = area_overlap:AB_overlap, names_to = "overlap_metric", values_to = "value")
 
 write_rds(overlaps, "Data/Derived/overlap_metrics.rds", compress = "gz")
 
-# summary(area_overlapfn_local(overlaps$lobster_bin, overlaps$predator_bin, area = overlaps$area_km2))
-# 
-# overlaps$loc_colloc <- loc_collocfn(prey = overlaps$lobster_est_response, pred = overlaps$predator_est_response)
-# 
-# summary(overlaps$loc_colloc)
-# 
-# AB_overlapfn2 <- function(prey, pred) { 
-#   ((pred - mean(pred, na.rm = T)) * (prey - mean(prey, na.rm = T)))/(mean(pred, na.rm = T) * mean(prey, na.rm = T)) 
-# }
-# 
-# temp <- AB_overlapfn2(overlaps$lobster_est_response, overlaps$predator_est_response)
-# 
-# 
-# p_prey = overlaps$lobster_est_response/sum(overlaps$lobster_est_response)
-# p_pred <- overlaps$predator_est_response/sum(overlaps$predator_est_response)
-# sum(p_prey*p_pred, na.rm = T)/(sqrt(sum(p_prey^2, na.rm = T)*sum(p_pred^2, na.rm = T)))
-# 
-# temp <- df_overlap %>%
-#   filter(id == 1) %>%
-#   mutate(lobster_est_response = exp(lobster_est), 
-#          predator_est_response = exp(predator_est))
-# 
-# area_overlapfn(prey = temp$lobster_est_response, pred = temp$predator_est_response, area = temp$area_km2)
-# loc_collocfn(prey = temp$lobster_est_response, pred = temp$predator_est_response)
 
+#------------------------------------------------------------------------------
+## Estimate overlap metrics for larger spatial areas
+#------------------------------------------------------------------------------
 
+library(rnaturalearth)
+library(rnaturalearthdata)
 
+region <- ne_countries(scale = "medium", continent = "North America", returnclass = "sf")
+states <- ne_states(country = c("United States of America", "Canada"), returnclass = "sf")
 
+lat_lims <- c(35.2, 48)
+lon_lims<- c(-76, -56.2)
 
+# Build a 1 degree grid, overlay the observations, estimate metrics 
 
+grid.1 <- st_bbox(overlaps) %>%
+  st_as_sfc() %>%
+  st_make_grid(cellsize = 1) %>%
+  st_sf() %>%
+  mutate(cell_id = 1:n(), 
+         area = st_area(geometry), 
+         area_km2 = as.numeric(area/1000000)) %>%
+  select(-area) %>%
+  st_make_valid()
 
+ggplot() +
+  geom_sf(data = grid.1) +
+  geom_sf(data = region, fill = "#f0f0f0") +
+  geom_sf(data = states, color = "dark gray", lwd = 0.2, na.rm = TRUE) +
+  coord_sf(xlim = lon_lims, ylim = lat_lims, expand = FALSE)
 
+# Merge the data to the 1 degree grid
 
+df_overlap3 <- df_overlap %>%
+  sf::st_as_sf(coords = c("longitude", "latitude")) %>%
+  st_set_crs(4326) %>%
+  st_join(grid.1)
 
+# Estimate the metrics
 
+overlaps_1deg <- df_overlap3 %>% 
+  st_drop_geometry() %>%
+  group_by(season, year, cell_id, area_km2) %>%
+  mutate(p_res = exp(predator_est), # Here I just use the predicted estimates on the response scale. However, should we use get_index() to estimate relative biomas in each spatial unit???
+         l_res = exp(lobster_est)
+  )
 
+overlaps_1deg$lobster_bin <- ifelse(overlaps_1deg$l_res <= quantile(overlaps_1deg$l_res, 0.05), 0, 1)
+overlaps_1deg$predator_bin <- ifelse(overlaps_1deg$p_res <= quantile(overlaps_1deg$p_res, 0.05), 0, 1)
 
+out_1_deg <- overlaps_1deg %>% 
+  group_by(season, year, cell_id, area_km2) %>%
+  summarize(area_overlap = area_overlapfn(l_res, p_res, area_km2),
+         range_overlap = range_overlapfn(l_res, p_res, area_km2),
+         asymmalpha = asymmalpha_overlapfn(l_res, p_res), 
+         loc_colloc = loc_collocfn(l_res, p_res), 
+         biomass_overlap = biomass_overlapfn(l_res, p_res),
+         hurlbert = hurlbert_overlapfn(l_res, p_res, area_km2),
+         schoeners = schoeners_overlapfn(l_res, p_res), 
+         bhatta = bhatta_coeffn(l_res, p_res), 
+         AB = AB_overlapfn(l_res, p_res)) %>%
+  pivot_longer(cols = c(area_overlap:AB), names_to = "overlap_metric", values_to = "value" ) %>%
+  left_join(grid.1)
 
+write_rds(out_1_deg, "Data/Derived/overlap_metrics_1deg.rds")  
+  
 
 
 
