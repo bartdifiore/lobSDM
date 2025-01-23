@@ -10,7 +10,14 @@ get_raster_centroid_dist<- function(r) {
 }
 
 # Helper function to find and fill NA values
-fill_na_spatiotemporal <- function(na_pts, non_na_pts, dist_mat, value_col, date_col) {
+fill_na_spatiotemporal <- function(na_pts, non_na_pts, value_col, date_col) {
+  if(FALSE){
+    na_pts = na_points
+    non_na_pts = non_na_points
+    dist_mat = distances
+    value_col = names(summ_df_list)[j]
+    date_col = "Date"
+  }
   # Ensure both datasets have the same CRS
   if (st_crs(na_pts) != st_crs(non_na_pts)) {
     na_pts <- st_transform(non_na_pts, st_crs(na_pts))
@@ -38,13 +45,17 @@ fill_na_spatiotemporal <- function(na_pts, non_na_pts, dist_mat, value_col, date
       # Get the point and date for current NA value
       current_point <- na_pts[i,]
       current_date <- na_pts[[date_col]][i]
-    
-      # Calculate distances to all points in source dataset
-      distances <- dist_mat[i,]
-    
+
+      # Get just those non_na points with same date
+      non_na_pts_sub <- non_na_pts |>
+        dplyr::filter(Date == current_date)
+      
+      # Distances
+      distances<- st_distance(current_point, non_na_pts_sub)
+
       # Calculate time differences (in days)
       time_diffs <- abs(as.numeric(difftime(current_date, 
-                                        non_na_pts[[date_col]], 
+                                        non_na_pts_sub[[date_col]], 
                                         units = "days")))
     
       # Combine spatial and temporal distances (normalized)
@@ -53,20 +64,22 @@ fill_na_spatiotemporal <- function(na_pts, non_na_pts, dist_mat, value_col, date
     
       norm_distances <- as.numeric(distances) / max(as.numeric(distances))
       norm_time_diffs <- time_diffs / max(time_diffs)
-    
-      combined_distance <- space_weight * norm_distances + 
+
+      if(all(is.na(norm_time_diffs))){
+        combined_distance <- space_weight * norm_distances
+      } else {
+        combined_distance <- space_weight * norm_distances + 
                         time_weight * norm_time_diffs
-    
+      }
+      
       # Find nearest non-NA neighbor
-      valid_indices <- which(!is.na(non_na_pts[[value_col]]))
+      valid_indices <- which(!is.na(non_na_pts_sub[[value_col]]))
       nearest_idx <- valid_indices[which.min(combined_distance[valid_indices])]
     
       # Fill NA with nearest neighbor value
-      na_pts[[value_col]][i] <- non_na_pts[[value_col]][nearest_idx]
+      na_pts[[value_col]][i] <- non_na_pts_sub[[value_col]][nearest_idx]
     } 
   }
-
-  
   return(na_pts)
 }
 
@@ -286,12 +299,12 @@ dynamic_2d_extract<- function(rast_ts_stack, stack_name, t_summ, t_position, int
   
   # For debugging
   if(FALSE){
-    rast_ts_stack = dynamic_stacks[[1]]
-    stack_name = "BT"
+    rast_ts_stack = dynamic_stacks[[3]]
+    stack_name = unlist(lapply(dynamic_files, names))[3]
     t_summ = "match"
     t_position = NULL
     interp_nas = TRUE
-    sf_points = all_tows_with_static_covs
+    sf_points = sf_points_run
     date_col_name = "Date"
     df_sf = "df"
   }
@@ -485,9 +498,10 @@ dynamic_2d_extract<- function(rast_ts_stack, stack_name, t_summ, t_position, int
     # Get distance matrix, just do this once
     # Calculate distances to all points in source dataset
     # distances <- st_distance(na_points, non_na_points) # This takes a longg time
-    distances <- as.matrix(dist(st_coordinates(na_points), st_coordinates(non_na_points), method = "euclidean"))
-    
-    filled_points <- fill_na_spatiotemporal(na_pts = na_points, non_na_pts = non_na_points, dist_mat = distances, value_col = names(summ_df_list)[j], date_col = "DATE")
+    # distances <- as.matrix(dist(st_coordinates(na_points), st_coordinates(non_na_points), method = "euclidean"))
+    # distances <- st_distance(na_points, non_na_points, tolerance = 200)
+
+    filled_points <- fill_na_spatiotemporal(na_pts = na_points, non_na_pts = non_na_points, value_col = names(summ_df_list)[j], date_col = "Date")
 
     # Put back in
     sf_points[na_row_ids, names(summ_df_list)[j]] <- st_drop_geometry(filled_points[, names(summ_df_list)[j]])
@@ -542,6 +556,15 @@ dynamic_2d_extract_wrapper<- function(dynamic_covariates_list, t_summ, t_positio
     sf_points = tows_sf
     date_col_name = "Date"
     df_sf = "sf"
+
+    dynamic_covariates_list = dynamic_stacks[c(2, 5, 8, 11)]
+    t_summ = "match"
+    t_position = NULL
+    interp_nas = TRUE
+    sf_points = all_tows_with_static_covs
+    date_col_name = "Date"
+    df_sf = "df"
+    out_dir = NULL
   }
   
   # For each of the covariate layers in `dynamic_covariates_list` we are going to run our `dynamic_2d_extract` function. I think this might require some creative manipulating of the `sf_points` so we don't lose covariates as we move through them...
@@ -557,9 +580,10 @@ dynamic_2d_extract_wrapper<- function(dynamic_covariates_list, t_summ, t_positio
     }
     
     # If "last" one, good to return it
-    if(i == length(dynamic_covariates_list)){
-      tows_with_covs_out<- temp_tows_with_covs
+    if (i == length(dynamic_covariates_list)) {
+      tows_with_covs_out <- temp_tows_with_covs
     }
+    print(i)
   }
   
   if(df_sf == "sf"){

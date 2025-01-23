@@ -37,7 +37,10 @@ summary(lob_df_bio)
 
 env_data <- readRDS(here::here("Data/Derived/all_tows_all_covs.rds"))
 str(env_data)
-env_tows<- unique(env_data$ID)
+env_tows <- unique(env_data$ID)
+summary(env_data)
+
+all(lob_df_bio$trawl_id %in% env_tows)
 
 all_mod_data_juvenile <- lob_df_bio |>
   filter(life_class == "juvenile") |>

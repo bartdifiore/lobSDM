@@ -1,0 +1,289 @@
+---
+title: "Ensemble Grids for GLORYS Bias Corrections"
+author: "Adam Kemberling"
+description: | 
+  Creating CMIP6 Ensembles using GLORYs Bias-Corrected Models
+date: "Updated on: `r Sys.Date()`"
+format: 
+  html:
+    code-fold: true
+    code-tools: true
+    df-print: kable
+    self-contained: true
+execute: 
+  echo: true
+  warning: false
+  message: true
+  fig.align: "center"
+  comment: ""
+params: 
+  experiment: 
+      label: "Select CMIP experiment"
+      value: "ssp5_85"
+      input: select
+      choices: ["ssp1_26", "ssp5_85"]
+---
+
+## About: Creating Ensembles
+
+The processsing of bias-corrected datasets using GLORYS reanalysis data has been done in python in \`Code/CMIP_GLORYs_Bias_Corrections.ipynb.
+
+The end product of that notebook is numerous Netcdf files, each containing bias-corrected data for a variable (surface temperature, botttom temperature, surface salinity, bottom salinity) spanning a historical (1950-2010) and projection (2010-2100) period. Each file is specific to a particular experiment_id detailing the institution that ran the model and the details on the SSP scenario and forcings for it **FIX THIS DESCRIPTION TO BE ACCURATE ABOUT THE NAMES**
+
+```{r}
+
+###__ Packages  ####
+library(here)
+library(ncdf4)
+library(RNetCDF)
+library(raster)
+library(janitor)
+library(gmRi)
+library(patchwork)
+library(tidyverse)
+library(knitr)
+
+# Load the build code and stratification function
+res_path    <- cs_path("RES_Data")
+cmip_path   <- cs_path("RES_Data", "CMIP6")
+
+#### Set theme  ####
+theme_set(theme_minimal())
+
+#  color palette for quick raster displays
+temp_pal <- rev(RColorBrewer::brewer.pal(n = 10, name = "RdBu"))
+
+# ####  Functions  ####
+# source(here::here("Code/sdm_workflow_funs.R"))
+
+
+# Set the processing options
+#cmip_var <- "surf_temp"
+cmip_var <- "bot_temp"
+cmip_scenario <- "SSP5_85"
+```
+
+Using the individuals experimental runs, and collecting them as an ensemble of multiple models, we can establish a range of expectations for different ssp scenarios.
+
+```{r}
+# Folder to the variable, based on ssp scenario
+models_path <- cs_path(
+  box_group = "res", 
+  subfolder = str_c("CMIP6", cmip_scenario, "GLORYS_bias_corrected/IndividualModels", cmip_var, sep = "/"))
+
+
+
+# load all the files in a list by experiment id
+model_files <- list.files(models_path, pattern = ".nc", full.names = T)
+model_ids <- list.files(models_path, pattern = ".nc") %>% str_remove_all(".nc")
+model_files <- setNames(model_files, model_ids)
+
+# Load them as raster stacks
+model_stacks <- map(model_files, function(x){raster::stack(x)})
+
+```
+
+Once we have a list containing the bias corrected data for each model, we can do some checks to verify that the dates are loaded properly. This ensures that grouping/subsetting for the ensemble steps work properly.
+
+The following table shows the start and end dates for each bias correction stack:
+
+```{r}
+
+# check that the dates are okay
+model_stacks %>% 
+  map_dfr(.f = function(x){
+    data.frame(
+      "start_date" = names(x)[1],
+      "end_date" = names(x)[length(names(x))])}, 
+    .id = "Model ID") %>% 
+  gt::gt()
+
+```
+
+These should be consistent in start and end date, as well as the formatting. The year and month information from these names will be used to align the datasets at each timestep.
+
+```{r}
+
+# Build a vector of year-months
+
+  
+# Year and month name matching
+time_steps <- map(
+  .x = str_pad(c(1:12), 2, pad = "0", side = "left"), 
+  .f = ~paste0("X", c(1950:2100), ".", .x)) %>% 
+  unlist() %>% sort()
+
+# output names
+new_names <- str_c(time_steps,  ".15")
+  
+
+# Why are there two for these months?
+names(model_stacks$thetao_NESM3_r1i1p1f1)[[1430]]
+names(model_stacks$thetao_NESM3_r1i1p1f1)[[1431]]
+plot(model_stacks$thetao_NESM3_r1i1p1f1[[1430]], main = "X2069.03.15.1")
+plot(model_stacks$thetao_NESM3_r1i1p1f1[[1431]], main = "X2069.03.15.2")
+
+
+
+
+# Map through the time steps getting the desired quantile at each step
+ensemble_means <- map(time_steps, function(time_step){
+  
+  # Pull the time step from each model
+  timestep_list <- map(
+    .x = model_stacks, 
+    .f = function(.x){
+      # Cut off day info
+      names(.x) <- names(.x) %>% str_sub(1, 8)
+      # Pull that timestep
+      .x[[time_step]]})
+  
+  # Assemble them in a stack
+  timestep_stack <- raster::stack(timestep_list)
+     
+  # Grab the desired mean/quantile estimate
+  timestep_mean <- calc(timestep_stack, fun = mean,  na.rm = T)
+  return(timestep_mean)
+  
+}) %>% raster::stack() %>% setNames(new_names) # Set the layer names
+
+
+# Stack everything back together, set names
+plot(
+  ensemble_means$X2020.05.15, 
+  main = str_c("Ensemble Mean ", cmip_var, " 2020-05"), 
+  col = temp_pal)
+
+```
+
+```{r}
+# Map through the time steps getting the desired quantile at each step
+ensemble_5th <- map(
+  .x = time_steps,          
+  .f = function(time_step){
+    
+    # Pull the time step from each model
+    timestep_list <- map(
+      .x = model_stacks, 
+      .f = function(.x){
+        # Cut off day info
+        names(.x) <- names(.x) %>% str_sub(1, 8)
+        # Pull that timestep
+        .x[[time_step]]})
+    
+    # Assemble them in a stack
+    timestep_stack <- raster::stack(timestep_list)
+       
+    # Grab the desired mean/quantile estimate
+    timestep_quantile <- calc(
+      timestep_stack, 
+      function(rasters){
+        quantile(rasters, probs = 0.05, na.rm = T)})
+    
+    return(timestep_quantile)
+}) %>% 
+      raster::stack() %>% 
+      setNames(new_names) # Set the layer names
+
+plot(
+  ensemble_5th$X2020.05.15, 
+  main = str_c("Ensemble 5th Percentile ", cmip_var, " 2020-05"), 
+  col = temp_pal)
+```
+
+```{r}
+# Map through the time steps getting the desired quantile at each step
+ensemble_95th <- map(
+  .x = time_steps, 
+  .f = function(time_step){
+    
+    # Pull the time step from each model
+    timestep_list <- map(
+      .x = model_stacks, 
+      .f = function(.x){
+        # Cut off day info
+        names(.x) <- names(.x) %>% str_sub(1, 8)
+        # Pull that timestep
+        .x[[time_step]]})
+    
+    # Assemble them in a stack
+    timestep_stack <- raster::stack(timestep_list)
+       
+    # Grab the desired mean/quantile estimate
+    timestep_quantile <- calc(
+      timestep_stack, 
+      function(rasters){
+        quantile(rasters, probs = 0.95, na.rm = T)})
+    
+    return(timestep_quantile)
+}) %>% 
+      raster::stack() %>% 
+      setNames(new_names) # Set the layer names
+
+
+plot(
+  ensemble_95th$X2020.05.15, 
+  main = str_c("Ensemble 95th Percentile ", cmip_var, " 2020-05"), 
+  col = temp_pal)
+
+```
+
+```{r}
+#| eval: false
+
+
+## Export The Files 
+
+
+# Path to the bias correction folder
+var_path <- cs_path(
+  box_group = "res", 
+  subfolder = str_c("CMIP6", cmip_scenario, "GLORYS_bias_corrected/EnsembleData", sep = "/"))
+
+# # Save as NetCDF - need to figure this out
+# 
+# # File Names
+# terra::writeCDF(
+#   ensemble_5th, 
+#   paste0(
+#     var_path, 
+#     cmip_var,"_", "_GLORYs_bias_corrected_5thpercentile.nc"), overwrite = T)
+# terra::writeCDF(
+#   ensemble_means, 
+#   paste0(
+#     var_path, 
+#     cmip_var,"_", "_GLORYs_bias_corrected_mean.nc"), overwrite = T)
+# terra::writeCDF(
+#   ensemble_95th, 
+#     paste0(
+#     var_path, 
+#     cmip_var,"_", "_GLORYs_bias_corrected_95thpercentile.nc"), overwrite = T)
+
+
+
+
+# File Names
+writeRaster(
+  ensemble_5th, 
+  paste0(
+    var_path, 
+    cmip_var,"_", "_GLORYs_bias_corrected_5thpercentile.grd"), overwrite = T)
+writeRaster(
+  ensemble_means, 
+  paste0(
+    var_path, 
+    cmip_var,"_", "_GLORYs_bias_corrected_mean.grd"), overwrite = T)
+writeRaster(
+  ensemble_95th, 
+    paste0(
+    var_path, 
+    cmip_var,"_", "_GLORYs_bias_corrected_95thpercentile.grd"), overwrite = T)
+
+
+
+```
+
+```{r}
+
+# Process them seasonally
+```

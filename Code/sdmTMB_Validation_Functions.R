@@ -590,3 +590,91 @@ mase_func_simp<- function(df, obs, mod){
     return(mase.out)
   }
 }
+
+
+plot_smooth_aja <- function(object, cov_name, se = TRUE, n = 100, level = 0.95, rug = TRUE, return_data = FALSE, rescale_means = NULL, rescale_sds = NULL) {
+  if (FALSE) {
+    object = mod
+    cov_name = "BT_seasonal_scaled"
+    n = 100
+    level = 0.95
+    rug = TRUE
+    return_data = FALSE
+    rescale_means = column_means
+    rescale_sds = column_sds
+  }
+
+  if (isTRUE(object$delta)) {
+    cli_abort("This function doesn't work with delta models yet")
+  }
+  assert_that(inherits(object, "sdmTMB"))
+  assert_that(is.logical(return_data))
+  assert_that(is.logical(se))
+  assert_that(is.numeric(n))
+  assert_that(is.numeric(level))
+  assert_that(length(level) == 1L)
+  assert_that(length(select) == 1L)
+  assert_that(length(n) == 1L)
+  assert_that(is.numeric(select))
+  assert_that(level > 0 & level < 1)
+  assert_that(n < 500)
+
+  sm <- parse_smoothers(object$formula[[1]], object$data)
+  sm_names <- unlist(lapply(sm$Zs, function(x) attr(x, "s.label")))
+  sm_names <- gsub("\\)$", "", gsub("s\\(", "", sm_names))
+  fe_names <- colnames(object$tmb_data$X_ij)
+  fe_names <- fe_names[!fe_names == "offset"]
+  fe_names <- fe_names[!fe_names == "(Intercept)"]
+  all_names <- c(sm_names, fe_names)
+  if (!cov_name %in% sm_names) {
+    cli_abort("`cov_name` not in the model smooth terms")
+  }
+  non_select_names <- all_names[!all_names %in% cov_name]
+  x <- object$data[[cov_name]]
+  nd <- data.frame(x = seq(min(x), max(x), length.out = n))
+  names(nd)[1] <- cov_name
+  dat <- object$data
+  .t <- terms(object$formula[[1]])
+  .t <- labels(.t)
+  checks <- c("^as\\.factor\\(", "^factor\\(")
+  for (ch in checks) {
+    if (any(grepl(ch, .t))) {
+      ft <- grep(ch, .t)
+      for (i in ft) {
+        x <- gsub(ch, "", .t[i])
+        x <- gsub("\\)$", "", x)
+        dat[[x]] <- as.factor(dat[[x]])
+      }
+    }
+  }
+  dat[, object$spde$xy_cols] <- NULL
+  dat[[object$time]] <- NULL
+  for (i in seq_len(ncol(dat))) {
+    if (names(dat)[i] != cov_name) {
+      if (is.factor(dat[, i, drop = TRUE])) {
+        nd[[names(dat)[[i]]]] <- sort(dat[, i, drop = TRUE])[[1]]
+      } else {
+        nd[[names(dat)[[i]]]] <- mean(dat[, i, drop = TRUE], na.rm = TRUE)
+      }
+    }
+  }
+  nd[object$time] <- min(object$data[[object$time]], na.rm = TRUE)
+  nd[[object$spde$xy_cols[1]]] <- mean(object$data[[object$spde$xy_cols[1]]], na.rm = TRUE)
+  nd[[object$spde$xy_cols[2]]] <- mean(object$data[[object$spde$xy_cols[2]]], na.rm = TRUE)
+  p <- predict(object, newdata = nd, se_fit = se, re_form = NA)
+  if (return_data) {
+    return(p)
+  }
+  inv <- object$family$linkinv
+  qv <- stats::qnorm(1 - (1 - level) / 2)
+  g <- ggplot2::ggplot(p, ggplot2::aes(.data[[cov_name]], inv(.data$est), ymin = inv(.data$est - qv * .data$est_se), ymax = inv(.data$est + qv * .data$est_se))) +
+    ggplot2::geom_line() +
+    ggplot2::geom_ribbon(alpha = 0.4) +
+    ggplot2::labs(x = cov_name, y = paste0("s(", cov_name, ")"))
+  if (rug) {
+    g <- g +
+      ggplot2::geom_rug(data = object$data, mapping = ggplot2::aes(x = .data[[cov_name]]), sides = "b", inherit.aes = FALSE, alpha = 0.3)
+  }
+  return(g)
+}
+
