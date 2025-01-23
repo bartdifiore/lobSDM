@@ -32,6 +32,39 @@ comparison <- setdiff(potentials, preds_upper) # There are few species on this l
 pred_subset <- preds$scientific_name
 
 #----------------------------------
+## Load & filter unique tows
+#----------------------------------
+ma_tows <- read_rds("Data/TrawlSurvey_data/mass_weight_at_length.rds") |>
+  ungroup() |>
+  dplyr::select(longitude, latitude, trawl_id, season, year, survey, date) |>
+  distinct() |>
+  mutate(date = lubridate::date(date))
+
+dfo_tows <- read_rds("Data/TrawlSurvey_data/dfo_weight_at_length.rds") |>
+  ungroup() |>
+  dplyr::select(longitude, latitude, trawl_id, season, year, survey, date) |>
+  distinct() |>
+  mutate(date = lubridate::date(date))
+
+nefsc_tows <- read_rds("Data/TrawlSurvey_data/nefsc_both_weight_at_length.rds") |>
+  ungroup() |>
+  dplyr::select(longitude, latitude, trawl_id, season, year, survey, date) |>
+  distinct() |>
+  mutate(date = lubridate::date(date))
+
+me_tows <- read_rds("Data/TrawlSurvey_data/me_both_weight_at_length.rds") |>
+  ungroup() |>
+  dplyr::select(longitude, latitude, trawl_id, season, year, survey, date) |>
+  distinct() |>
+  mutate(date = lubridate::date(date))
+
+tows_df <- rbind(ma_tows, dfo_tows, nefsc_tows, me_tows) %>%
+  mutate(season = str_to_sentence(season))
+
+write_rds(tows_df, "Data/Derived/all_unique_tows.rds", compress = "gz")
+
+
+#----------------------------------
 ## Load & filter predators
 #----------------------------------
 ma <- read_rds("Data/TrawlSurvey_data/mass_weight_at_length.rds") %>%

@@ -1,5 +1,7 @@
 # Stuff we add here
-
+# Model Fits and Projection files
+Fitted_Mods/*
+Projections/*
 .DS_Store
 Data/Derived/model_fit*
 
